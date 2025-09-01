@@ -1,75 +1,105 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useNavigation } from "@react-navigation/native";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
+import React, { useEffect } from "react";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+WebBrowser.maybeCompleteAuthSession();
 
 export default function HomeScreen() {
+  const navigation = useNavigation<any>();
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    iosClientId: "350782448048-v79nef537mb92qnq8md0v6dlqpr1k8d9.apps.googleusercontent.com",
+    androidClientId: "350782448048-jr1mflkb0k3gj59c19uli5tisenlus4u.apps.googleusercontent.com",
+    webClientId: "350782448048-he72k4gtpp9nc779dgjv32godevja80v.apps.googleusercontent.co350782448048-gqq1leq1rl5npmo1p9mqh00e8ca5urnk.apps.googleusercontent.com", // quan trọng cho Expo Go / Web
+  });
+
+  useEffect(() => {
+    if (response?.type === "success") {
+      const { authentication } = response;
+      fetchUserInfo(authentication?.accessToken);
+    }
+  }, [response]);
+
+  const fetchUserInfo = async (token: string | undefined) => {
+    if (!token) return;
+    try {
+      const res = await fetch("https://www.googleapis.com/userinfo/v2/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const user = await res.json();
+      // 👉 Chuyển sang màn Profile và truyền user
+      navigation.navigate("homePage", { user });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <View style={styles.container}>
+      <Text style={styles.title}>WELCOME TO VPAN</Text>
+
+      <Image
+        source={require("../../assets/images/logoVpan.png")}
+        style={styles.logo}
+      />
+
+      <TouchableOpacity
+        style={styles.buttonGoogle}
+        disabled={!request}
+        onPress={() => promptAsync()}
+      >
+        <Text style={styles.buttonText}>CONTINUE WITH GOOGLE</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.buttonFacebook}>
+        <Text style={styles.buttonText}>CONTINUE WITH FACEBOOK</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    backgroundColor: "#EFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  title: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 20,
+    color: "#000",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  logo: {
+    width: 160,
+    height: 160,
+    marginVertical: 30,
+    resizeMode: "contain",
+  },
+  buttonGoogle: {
+    width: "90%",
+    paddingVertical: 15,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    marginBottom: 15,
+    elevation: 2,
+  },
+  buttonFacebook: {
+    width: "90%",
+    paddingVertical: 15,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    elevation: 2,
+  },
+  buttonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#000",
   },
 });
