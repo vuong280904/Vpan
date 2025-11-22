@@ -1,43 +1,35 @@
-// app/_layout.tsx  ← ĐÈ NGAY FILE CŨ BẰNG FILE NÀY LÀ XONG!
+// app/_layout.tsx ← TÊN PHẢI LÀ _layout.tsx (có dấu gạch dưới)
+import { AuthProvider } from '@/context/AuthContext';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 
-import { useColorScheme } from '@/hooks/useColorScheme';
-
-// THÊM 2 DÒNG NÀY
-import { AuthProvider } from '../context/AuthContext'; // ← đường dẫn đúng tới file AuthContext.tsx của bạn
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
 
-  if (!loaded) {
-    return null; // đang load font
-  }
+  useEffect(() => {
+    if (loaded) SplashScreen.hideAsync();
+  }, [loaded]);
+
+  if (!loaded) return null;
 
   return (
-    // BỌC TOÀN BỘ APP BẰNG AuthProvider ← QUAN TRỌNG NHẤT!
     <AuthProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack screenOptions={{ headerShown: false }}>
-          {/* Các màn hình auth */}
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
-
-          {/* Tab chính (dashboard) */}
-          <Stack.Screen name="(tabs)" />
-
-          {/* 404 */}
+          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           <Stack.Screen name="+not-found" />
         </Stack>
-
-        <StatusBar style="auto" />
       </ThemeProvider>
     </AuthProvider>
   );

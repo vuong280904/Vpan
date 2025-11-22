@@ -1,76 +1,60 @@
-// context/AuthContext.tsx  ← THAY NGUYÊN FILE NÀY (ĐÃ CHỈNH SỬA)
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
-import { createContext, useContext, useEffect, useState } from 'react';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
+import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 
-type User = {
-  id: string;
-  name: string;
-  email: string;
-  token: string;        // ← THÊM DÒNG NÀY
-} | null;
+type User = { id: string; name: string; email: string } | null;
 
 type AuthContextType = {
   user: User;
-  login: (token: string, userData: any) => Promise<void>;
+  token: string | null;
+  login: (token: string, userData: User) => Promise<void>;
   logout: () => Promise<void>;
   isLoading: boolean;
 };
 
-const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const bootstrapAsync = async () => {
+    (async () => {
       try {
-        const token = await AsyncStorage.getItem('token');
-        const userData = await AsyncStorage.getItem('user');
-
-        if (token && userData) {
-          const parsed = JSON.parse(userData);
-          setUser({ ...parsed, token }); // ← Đảm bảo token luôn có trong user
-          console.log('ĐÃ TẢI USER + TOKEN TỪ STORAGE');
-        }
-      } catch (e) {
-        console.log('Lỗi load auth:', e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    bootstrapAsync();
+        const [t, u] = await Promise.all([
+          AsyncStorage.getItem("token"),
+          AsyncStorage.getItem("user")
+        ]);
+        if (t && u) { setToken(t); setUser(JSON.parse(u)); }
+      } catch (e) { console.log(e); }
+      finally { setIsLoading(false); }
+    })();
   }, []);
 
-  const login = async (token: string, userData: any) => {
-    try {
-      const userWithToken = { ...userData, token };
-      await AsyncStorage.setItem('token', token);
-      await AsyncStorage.setItem('user', JSON.stringify(userWithToken));
-      setUser(userWithToken);
-      router.replace('/(auth)/(tabs)');
-    } catch (error) {
-      console.error('Lỗi login:', error);
-    }
+  const login = async (newToken: string, userData: User) => {
+    setToken(newToken);
+    setUser(userData);
+    await AsyncStorage.setItem("token", newToken);
+    await AsyncStorage.setItem("user", JSON.stringify(userData));
+    router.replace("/(auth)/(tabs)");
   };
 
   const logout = async () => {
-    try {
-      await AsyncStorage.multiRemove(['token', 'user']);
-      setUser(null);
-      router.replace('/login');
-    } catch (error) {
-      console.log('Lỗi logout:', error);
-    }
+    setUser(null); setToken(null);
+    await AsyncStorage.multiRemove(["token", "user"]);
+    router.replace("/login");
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
-      {!isLoading && children}
+    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+      {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = (): AuthContextType => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth phải dùng trong AuthProvider");
+  return context;
+};

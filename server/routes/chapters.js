@@ -27,23 +27,27 @@ router.post('/', async (req, res) => {
     }
 
     // Tạo chapter mới
-    const newChapter = new Chapter({
-      book: bookId,
-      chapterNumber,
-      title,
-      illustration,
-      content, // mảng các dòng { text, ruby, meaning }
-    });
+// routes/chapters.js – SỬA CHỖ NÀY
+const newChapter = new Chapter({
+  book: bookId,
+  chapterNumber,
+  title,
+  illustration,
+  content,
+});
 
-    await newChapter.save();
+await newChapter.save();
 
-    // Trả về chapter vừa tạo (đã populate tên sách)
-    const populatedChapter = await Chapter.findById(newChapter._id).populate('book', 'title');
+// THÊM DÒNG NÀY – QUAN TRỌNG NHẤT!!!
+await Book.findByIdAndUpdate(bookId, { $push: { chapters: newChapter._id } });
 
-    res.status(201).json({
-      message: 'Thêm chapter thành công!',
-      chapter: populatedChapter
-    });
+// Sau đó mới populate
+const populatedChapter = await Chapter.findById(newChapter._id).populate('book', 'title');
+
+res.status(201).json({
+  message: 'Thêm chapter thành công!',
+  chapter: populatedChapter
+});
 
   } catch (error) {
     console.error('Lỗi khi thêm chapter:', error);

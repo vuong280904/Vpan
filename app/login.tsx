@@ -2,23 +2,27 @@ import axios from "axios";
 import { Link } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
 
-const API_URL = 
-  Platform.OS === "web" 
-    ? "http://localhost:5000/api/auth"
-    : "http://192.168.1.35:5000/api/auth"; // ← thay IP thật của bạn
+// TẠO AXIOS INSTANCE CÓ BASEURL → QUAN TRỌNG NHẤT!
+const api = axios.create({
+  baseURL:
+    Platform.OS === "web"
+      ? "http://localhost:5000/api/auth"
+      : "http://192.168.2.6:5000/api/auth", // ← ĐÚNG IP MÁY BẠN HIỆN TẠI
+  timeout: 10000,
+});
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -28,47 +32,49 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      console.log("Validation failed: thiếu email hoặc password");
-      return Alert.alert("Lỗi", "Vui lòng nhập đầy đủ");
+      return Alert.alert("Lỗi", "Vui lòng nhập đầy đủ email và mật khẩu");
     }
 
-    console.log("Bắt đầu đăng nhập với email:", email);
     setLoading(true);
+    console.log("Bắt đầu đăng nhập:", email);
 
     try {
-      console.log("Gửi request đến:", `${API_URL}/login`);
-      const res = await axios.post(`${API_URL}/login`, { email, password });
+      // CHỈ CẦN GỌI "/login" → axios tự thêm baseURL
+      const res = await api.post("/login", { email, password });
 
-      console.log("Server trả về thành công:", res.data);
-      console.log("Token:", res.data.token);
+      console.log("Đăng nhập thành công! Token:", res.data.token);
       console.log("User:", res.data.user);
 
-      console.log("Gọi hàm login() từ AuthContext...");
+      // Gọi hàm login từ AuthContext
       await login(res.data.token, res.data.user);
 
-      console.log("Đăng nhập thành công! Đang chuyển trang...");
+      Alert.alert("Thành công", "Đăng nhập thành công!");
     } catch (err: any) {
-      console.error("ĐĂNG NHẬP THẤT BẠI:");
+      console.error("ĐĂNG NHẬP THẤT BẠI:", err);
+
       if (err.response) {
-        console.error("Status:", err.response.status);
-        console.error("Data:", err.response.data);
-        Alert.alert("Lỗi", err.response.data?.message || "Sai email/mật khẩu");
+        // Server trả lỗi (400, 500,...)
+        const msg = err.response.data?.message || "Sai email hoặc mật khẩu";
+        Alert.alert("Đăng nhập thất bại", msg);
       } else if (err.request) {
-        console.error("Không kết nối được server:", err.request);
-        Alert.alert("Lỗi mạng", "Không kết nối được đến server");
+        // Không kết nối được server
+        Alert.alert("Lỗi mạng", "Không thể kết nối đến server. Kiểm tra IP và backend!");
       } else {
-        console.error("Lỗi khác:", err.message);
+        // Lỗi khác (axios config,...)
         Alert.alert("Lỗi", err.message);
       }
     } finally {
       setLoading(false);
-      console.log("Kết thúc hàm handleLogin");
     }
   };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
         <View style={styles.inner}>
           {/* Logo */}
           <View style={styles.logoContainer}>
@@ -99,7 +105,11 @@ export default function LoginScreen() {
               secureTextEntry
             />
 
-            <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleLogin}
+              disabled={loading}
+            >
               <Text style={styles.buttonText}>
                 {loading ? "Đang đăng nhập..." : "Đăng nhập"}
               </Text>
