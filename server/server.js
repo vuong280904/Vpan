@@ -85,15 +85,18 @@ app.get('/api/jishoApi/audio', async (req, res) => {
 });
 
 // Import appRouter
+const chapterRoutes = require('./routes/chapters');
 const appRouter = require('./routes/appRouter');
-
-// Mount tất cả route từ appRouter
+const authRouter = require('./routes/auth');
+const bookRoutes = require('./routes/books');
+app.use('/api/auth', authRouter);   // ← Đúng đường dẫn: /api/auth/register
 app.use('/api', appRouter);
-
+app.use('/api/chapters', chapterRoutes);
+app.use('/api/books', bookRoutes);
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.log('❌ MongoDB error:', err));
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

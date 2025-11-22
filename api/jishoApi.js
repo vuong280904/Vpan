@@ -5,7 +5,7 @@ export async function searchJapaneseWord(keyword) {
 
   try {
     const response = await fetch(
-      `http://${LOCALHOST}:4000/api/jishoApi/search?keyword=${encodeURIComponent(keyword)}`
+      `http://${LOCALHOST}:5000/api/jishoApi/search?keyword=${encodeURIComponent(keyword)}`
     );
 
     if (!response.ok) {
@@ -28,5 +28,5 @@ export async function getPronunciationUrl(text) {
 
   // Return the server endpoint that proxies the TTS audio.
   // The client can use this URL directly with Audio.Sound.createAsync({ uri }) or with HTML Audio on web
-  return `http://${LOCALHOST}:4000/api/jishoApi/audio?text=${encodeURIComponent(text)}`;
+  return `http://${LOCALHOST}:5000/api/jishoApi/audio?text=${encodeURIComponent(text)}`;
 }
