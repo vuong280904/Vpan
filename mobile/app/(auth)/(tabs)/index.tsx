@@ -268,7 +268,7 @@ onPress={() => {
   if (action.title === 'Sách Song Ngữ') {
     router.push('/books/list' as any); // Dùng "as any" để bypass tạm thời
   } else if (action.title === 'Flashcard') {
-    router.push('/(flashcards)' as any);
+    router.push('/FlashSet' as any);
   } else if (action.title === 'Luyện Thi') {
     router.push('/(quiz)' as any);
   } else if (action.title === 'Shadowing') {

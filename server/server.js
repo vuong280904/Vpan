@@ -89,10 +89,12 @@ const chapterRoutes = require('./routes/chapters');
 const appRouter = require('./routes/appRouter');
 const authRouter = require('./routes/auth');
 const bookRoutes = require('./routes/books');
+const flashcardSetRoutes = require('./routes/flashcardSets');
 app.use('/api/auth', authRouter);   // ← Đúng đường dẫn: /api/auth/register
 app.use('/api', appRouter);
 app.use('/api/chapters', chapterRoutes);
 app.use('/api/books', bookRoutes);
+app.use('/api/flashcard-sets', flashcardSetRoutes);
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB connected'))
