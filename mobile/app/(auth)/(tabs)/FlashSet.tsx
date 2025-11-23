@@ -1,23 +1,45 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Alert, ActivityIndicator, Modal, Platform } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getItemAsync } from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Conditional import for secure store (only works on native)
+let getItemAsync: (key: string) => Promise<string | null>;
+
+if (Platform.OS !== 'web') {
+  try {
+    const SecureStore = require('expo-secure-store');
+    getItemAsync = SecureStore.getItemAsync;
+  } catch (e) {
+    getItemAsync = AsyncStorage.getItem;
+  }
+} else {
+  getItemAsync = AsyncStorage.getItem;
+}
 
 // TODO: Replace with your actual API base URL
 const API_URL = 'http://localhost:5000/api';
 
 const getAuthToken = async () => {
-  const token = await getItemAsync('token');
-  return token;
+  try {
+    const token = await getItemAsync('token');
+    return token;
+  } catch (error) {
+    console.error('Error retrieving auth token:', error);
+    return null;
+  }
 };
 
 export default function FlashcardSetsScreen() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
-  const [sets, setSets] = useState([]);
+  const [sets, setSets] = useState<any[]>([]);
   const [menuVisibleFor, setMenuVisibleFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [newSetTitle, setNewSetTitle] = useState('');
+  const [newSetDescription, setNewSetDescription] = useState('');
 
   const fetchFlashcardSets = async () => {
     try {
@@ -58,8 +80,10 @@ export default function FlashcardSetsScreen() {
   );
 
   const handleNavigateToSet = (setId: string) => {
-    // router.push(`/flashcard-set/${setId}`);
-    console.log(`Navigating to set ${setId}`);
+    router.push({
+      pathname: '/(auth)/flashcards/[setId]',
+      params: { setId },
+    });
   };
 
   const handleEdit = (setId: string) => {
@@ -103,7 +127,49 @@ export default function FlashcardSetsScreen() {
     );
   };
 
-  const renderSetItem = ({ item }) => (
+  const handleCreateSet = async () => {
+    if (!newSetTitle.trim()) {
+      Alert.alert('Error', 'Please enter a title for the flashcard set.');
+      return;
+    }
+
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${API_URL}/flashcard-sets`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: newSetTitle,
+          description: newSetDescription,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSets(prevSets => [data, ...prevSets]);
+        setNewSetTitle('');
+        setNewSetDescription('');
+        setIsModalVisible(false);
+        Alert.alert('Success', 'Flashcard set created successfully!');
+      } else {
+        Alert.alert('Error', data.message || 'Failed to create flashcard set');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'An error occurred while creating the flashcard set.');
+      console.error(error);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setNewSetTitle('');
+    setNewSetDescription('');
+    setIsModalVisible(false);
+  };
+
+  const renderSetItem = ({ item }: { item: any }) => (
     <TouchableOpacity onPress={() => handleNavigateToSet(item._id)} style={styles.setItem}>
       <View style={styles.setItemDetails}>
         <Text style={styles.setTitle}>{item.title}</Text>
@@ -146,7 +212,7 @@ export default function FlashcardSetsScreen() {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
-        <TouchableOpacity style={styles.newSetButton}>
+        <TouchableOpacity style={styles.newSetButton} onPress={() => setIsModalVisible(true)}>
           <Text style={styles.newSetButtonText}>New Set</Text>
         </TouchableOpacity>
       </View>
@@ -157,6 +223,59 @@ export default function FlashcardSetsScreen() {
         contentContainerStyle={styles.listContainer}
         ListEmptyComponent={<Text>No flashcard sets found.</Text>}
       />
+
+      {/* Create Flashcard Set Modal */}
+      <Modal
+        visible={isModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Create New Flashcard Set</Text>
+              <TouchableOpacity onPress={handleCloseModal}>
+                <Ionicons name="close" size={28} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Set Title"
+              placeholderTextColor="#999"
+              value={newSetTitle}
+              onChangeText={setNewSetTitle}
+            />
+
+            <TextInput
+              style={[styles.modalInput, { height: 100, textAlignVertical: 'top' }]}
+              placeholder="Description (optional)"
+              placeholderTextColor="#999"
+              value={newSetDescription}
+              onChangeText={setNewSetDescription}
+              multiline
+              numberOfLines={4}
+            />
+
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={handleCloseModal}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleCreateSet}
+              >
+                <Text style={[styles.modalButtonText, { color: '#fff' }]}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -252,5 +371,64 @@ const styles = StyleSheet.create({
   menuItem: {
     paddingVertical: 12,
     paddingHorizontal: 16,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 32,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 16,
+    backgroundColor: '#f9f9f9',
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#007bff',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#e0e0e0',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
   },
 });

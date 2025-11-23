@@ -7,14 +7,25 @@ const {
   updateFlashcardSet,
   deleteFlashcardSet,
 } = require('../controllers/flashcardSetController');
+const {
+  getFlashcardsForSet,
+  addFlashcardToSet,
+  removeFlashcardFromSet,
+} = require('../controllers/flashcardController');
 const { protect } = require('../middleware/authMiddleware');
 
-// All of these routes are protected
-router.route('/').get(protect, getAllFlashcardSets).post(protect, createFlashcardSet);
-router
-  .route('/:id')
-  .get(protect, getFlashcardSetById)
-  .put(protect, updateFlashcardSet)
-  .delete(protect, deleteFlashcardSet);
+// Root route: GET and POST for flashcard sets
+router.get('/', protect, getAllFlashcardSets);
+router.post('/', protect, createFlashcardSet);
+
+// Flashcard association routes (must come before /:id routes)
+router.get('/:id/flashcards', protect, getFlashcardsForSet);
+router.post('/:id/flashcards', protect, addFlashcardToSet);
+router.delete('/:id/flashcards/:flashcardId', protect, removeFlashcardFromSet);
+
+// Single FlashcardSet CRUD routes
+router.get('/:id', protect, getFlashcardSetById);
+router.put('/:id', protect, updateFlashcardSet);
+router.delete('/:id', protect, deleteFlashcardSet);
 
 module.exports = router;

@@ -1,20 +1,24 @@
+const mongoose = require('mongoose');
+
 const flashcardSchema = new mongoose.Schema({
-  question: { type: String, required: true },     // Mặt trước (VD: 食べる)
-  answer: { type: String, required: true },       // Mặt sau (ăn, to eat)
+  vocabulary: { type: String, required: true },        // The word/term
+  phonetic: { type: String, default: '' },            // Phonetic transcription (e.g., /həˈləʊ/)
+  meaning: { type: String, required: true },          // Definition/meaning
+  image: { type: String, default: null },             // Image URL/path
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
-  parentSet: { type: mongoose.Schema.Types.ObjectId, ref: 'FlashcardSet', required: true },
-
-  // SRS Fields (SuperMemo 2+ algorithm)
+  // Legacy SRS Fields (SuperMemo 2+ algorithm) - optional for future use
   nextReviewDate: { type: Date, default: Date.now },
-  interval: { type: Number, default: 1 },         // ngày
+  interval: { type: Number, default: 1 },            // days
   easeFactor: { type: Number, default: 2.5 },
   timesReviewed: { type: Number, default: 0 },
-  isLearned: { type: Boolean, default: false },   // Nếu user đánh "thuộc lòng"
+  isLearned: { type: Boolean, default: false },      // If user marks as "learned"
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
 
-flashcardSchema.index({ parentSet: 1 });
-flashcardSchema.index({ nextReviewDate: 1 }); // Quan trọng cho query "thẻ cần ôn hôm nay"
-export default mongoose.model('Flashcard', flashcardSchema);
+flashcardSchema.index({ createdBy: 1 });
+flashcardSchema.index({ nextReviewDate: 1 });
+
+module.exports = mongoose.model('Flashcard', flashcardSchema);

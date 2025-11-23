@@ -5,7 +5,7 @@ const FlashcardSet = require('../models/FlashcardSet');
 // @access  Private
 const getAllFlashcardSets = async (req, res) => {
   try {
-    const flashcardSets = await FlashcardSet.find({ owner: req.user.id });
+    const flashcardSets = await FlashcardSet.find({ owner: req.user.id }).populate('flashcards');
     res.json(flashcardSets);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -17,7 +17,7 @@ const getAllFlashcardSets = async (req, res) => {
 // @access  Private
 const getFlashcardSetById = async (req, res) => {
   try {
-    const flashcardSet = await FlashcardSet.findById(req.params.id);
+    const flashcardSet = await FlashcardSet.findById(req.params.id).populate('flashcards');
 
     if (!flashcardSet) {
       return res.status(404).json({ message: 'Flashcard set not found' });
