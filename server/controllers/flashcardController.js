@@ -34,14 +34,42 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
 });
 
+// Helper function to add a flashcard to a set
+const addFlashcardToSetHelper = async (setId, flashcardId, userId) => {
+  if (!setId || !flashcardId || !userId) {
+    throw new Error('Missing parameters for addFlashcardToSetHelper');
+  }
+
+  const flashcardSet = await FlashcardSet.findById(setId);
+
+  if (!flashcardSet) {
+    throw new Error(`FlashcardSet with ID ${setId} not found`);
+  }
+
+  if (flashcardSet.owner.toString() !== userId.toString()) {
+    throw new Error('Not authorized to add flashcard to this set');
+  }
+
+  if (flashcardSet.flashcards.includes(flashcardId)) {
+    // Flashcard already in set, no need to add again
+    return { message: 'Flashcard already in set', flashcardSet };
+  }
+
+  flashcardSet.flashcards.push(flashcardId);
+  flashcardSet.updatedAt = Date.now();
+  await flashcardSet.save();
+  await flashcardSet.populate('flashcards'); // Populate to return full flashcard objects if needed by the caller
+  return { message: 'Flashcard added to set successfully', flashcardSet };
+};
+
 // @desc    Create a new flashcard
 // @route   POST /api/flashcards
 // @access  Private
 const createFlashcard = async (req, res) => {
   try {
-    const { vocabulary, phonetic, meaning } = req.body;
+    const { vocabulary, phonetic, meaning, setId } = req.body; // Added setId
 
-    console.log('createFlashcard - vocabulary:', vocabulary, 'meaning:', meaning);
+    console.log('createFlashcard - vocabulary:', vocabulary, 'meaning:', meaning, 'setId:', setId); // Added setId to log
     console.log('createFlashcard - file:', req.file ? req.file.filename : 'NO FILE');
 
     if (!vocabulary || !meaning) {
@@ -59,6 +87,19 @@ const createFlashcard = async (req, res) => {
 
     const createdFlashcard = await flashcard.save();
     console.log('Flashcard created successfully:', createdFlashcard._id);
+
+    // If setId is provided, add the flashcard to the set using the helper
+    if (setId) {
+      try {
+        await addFlashcardToSetHelper(setId, createdFlashcard._id, req.user.id);
+        console.log(`Flashcard ${createdFlashcard._id} added to set ${setId}`);
+      } catch (addSetError) {
+        console.warn(`Failed to add flashcard to set ${setId}: ${addSetError.message}`);
+        // Decide if this should be a critical error or just a warning
+        // For now, we'll proceed and just return the created flashcard, with a warning.
+      }
+    }
+
     res.status(201).json(createdFlashcard);
   } catch (err) {
     console.error('Error creating flashcard:', err);
@@ -110,35 +151,21 @@ const addFlashcardToSet = async (req, res) => {
       return res.status(400).json({ message: 'Flashcard ID is required' });
     }
 
-    const flashcardSet = await FlashcardSet.findById(setId);
-    console.log('Found flashcard set:', flashcardSet ? 'YES' : 'NO');
-
-    if (!flashcardSet) {
-      console.error('Flashcard set not found:', setId);
-      return res.status(404).json({ message: 'Flashcard set not found' });
-    }
-
-    console.log('User ID:', req.user.id, 'Set owner:', flashcardSet.owner.toString());
-    if (flashcardSet.owner.toString() !== req.user.id) {
-      return res.status(401).json({ message: 'Not authorized' });
-    }
-
-    // Check if flashcard already exists in set
-    if (flashcardSet.flashcards.includes(flashcardId)) {
-      return res.status(400).json({ message: 'Flashcard already in set' });
-    }
-
-    flashcardSet.flashcards.push(flashcardId);
-    flashcardSet.updatedAt = Date.now();
-
-    const updatedSet = await flashcardSet.save();
-    console.log('Flashcard set updated, now populating flashcards...');
-    await updatedSet.populate('flashcards');
-
-    console.log('Successfully added flashcard to set');
-    res.json(updatedSet);
+    const result = await addFlashcardToSetHelper(setId, flashcardId, req.user.id);
+    console.log(result.message);
+    res.json(result.flashcardSet);
   } catch (err) {
     console.error('Error in addFlashcardToSet:', err);
+    // Determine appropriate status code based on error message from helper
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ message: err.message });
+    }
+    if (err.message.includes('Not authorized')) {
+      return res.status(401).json({ message: err.message });
+    }
+    if (err.message.includes('already in set')) {
+      return res.status(400).json({ message: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 };
