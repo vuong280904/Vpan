@@ -272,7 +272,7 @@ onPress={() => {
   } else if (action.title === 'Luyện Thi') {
     router.push('/(quiz)' as any);
   } else if (action.title === 'Shadowing') {
-    router.push('/(shadowing)' as any);
+    router.push('/shadowTopic' as any);
   }
 }}
     >

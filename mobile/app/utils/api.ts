@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 
 // IP máy bạn (đã test chạy ngon)
-const HOST = '192.168.2.6:5000';
+const HOST = '192.168.1.9:5000';
 
 // Tự động chọn baseURL đúng nền tảng
 const API_BASE = Platform.OS === 'web' 
