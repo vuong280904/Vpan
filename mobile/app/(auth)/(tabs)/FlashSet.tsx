@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Alert, ActivityIndicator, Modal, Platform } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Conditional import for secure store (only works on native)
 let getItemAsync: (key: string) => Promise<string | null>;
@@ -38,8 +38,12 @@ export default function FlashcardSetsScreen() {
   const [menuVisibleFor, setMenuVisibleFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editingSetId, setEditingSetId] = useState<string | null>(null);
   const [newSetTitle, setNewSetTitle] = useState('');
   const [newSetDescription, setNewSetDescription] = useState('');
+  const [editSetTitle, setEditSetTitle] = useState('');
+  const [editSetDescription, setEditSetDescription] = useState('');
 
   const fetchFlashcardSets = async () => {
     try {
@@ -87,8 +91,14 @@ export default function FlashcardSetsScreen() {
   };
 
   const handleEdit = (setId: string) => {
-    console.log(`Editing set ${setId}`);
-    setMenuVisibleFor(null);
+    const set = sets.find(s => s._id === setId);
+    if (set) {
+      setEditingSetId(setId);
+      setEditSetTitle(set.title);
+      setEditSetDescription(set.description || '');
+      setIsEditModalVisible(true);
+      setMenuVisibleFor(null);
+    }
   };
 
   const handleDelete = (setId: string) => {
@@ -103,6 +113,16 @@ export default function FlashcardSetsScreen() {
           onPress: async () => {
             try {
               const token = await getAuthToken();
+              console.log('Delete set token:', token ? 'EXISTS' : 'MISSING');
+              if (!token) {
+                Alert.alert('Error', 'Authentication failed. Please login again.');
+                setMenuVisibleFor(null);
+                return;
+              }
+
+              console.log('Attempting to delete flashcard set:', setId);
+              console.log('Delete URL:', `${API_URL}/flashcard-sets/${setId}`);
+              
               const response = await fetch(`${API_URL}/flashcard-sets/${setId}`, {
                 method: 'DELETE',
                 headers: {
@@ -110,16 +130,22 @@ export default function FlashcardSetsScreen() {
                 },
               });
 
+              console.log('Delete response status:', response.status);
+              const responseData = await response.json();
+              console.log('Delete response data:', responseData);
+
               if (response.ok) {
                 setSets(prevSets => prevSets.filter(set => set._id !== setId));
                 setMenuVisibleFor(null);
+                console.log('FlashSet removed from state');
+                Alert.alert('Success', 'Flashcard set deleted successfully!');
               } else {
-                const data = await response.json();
-                Alert.alert('Error', data.message || 'Failed to delete flashcard set');
+                Alert.alert('Error', responseData.message || `Failed to delete flashcard set (${response.status})`);
               }
             } catch (error) {
+              console.error('Error deleting flashcard set:', error);
               Alert.alert('Error', 'An error occurred while deleting the flashcard set.');
-              console.error(error);
+              setMenuVisibleFor(null);
             }
           },
         },
@@ -167,6 +193,52 @@ export default function FlashcardSetsScreen() {
     setNewSetTitle('');
     setNewSetDescription('');
     setIsModalVisible(false);
+  };
+
+  const handleUpdateSet = async () => {
+    if (!editSetTitle.trim()) {
+      Alert.alert('Error', 'Please enter a title for the flashcard set.');
+      return;
+    }
+
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${API_URL}/flashcard-sets/${editingSetId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: editSetTitle,
+          description: editSetDescription,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSets(prevSets =>
+          prevSets.map(set => (set._id === editingSetId ? data : set))
+        );
+        setEditSetTitle('');
+        setEditSetDescription('');
+        setEditingSetId(null);
+        setIsEditModalVisible(false);
+        Alert.alert('Success', 'Flashcard set updated successfully!');
+      } else {
+        Alert.alert('Error', data.message || 'Failed to update flashcard set');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'An error occurred while updating the flashcard set.');
+      console.error(error);
+    }
+  };
+
+  const handleCloseEditModal = () => {
+    setEditSetTitle('');
+    setEditSetDescription('');
+    setEditingSetId(null);
+    setIsEditModalVisible(false);
   };
 
   const renderSetItem = ({ item }: { item: any }) => (
@@ -271,6 +343,59 @@ export default function FlashcardSetsScreen() {
                 onPress={handleCreateSet}
               >
                 <Text style={[styles.modalButtonText, { color: '#fff' }]}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Flashcard Set Modal */}
+      <Modal
+        visible={isEditModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseEditModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Flashcard Set</Text>
+              <TouchableOpacity onPress={handleCloseEditModal}>
+                <Ionicons name="close" size={28} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Set Title"
+              placeholderTextColor="#999"
+              value={editSetTitle}
+              onChangeText={setEditSetTitle}
+            />
+
+            <TextInput
+              style={[styles.modalInput, { height: 100, textAlignVertical: 'top' }]}
+              placeholder="Description (optional)"
+              placeholderTextColor="#999"
+              value={editSetDescription}
+              onChangeText={setEditSetDescription}
+              multiline
+              numberOfLines={4}
+            />
+
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={handleCloseEditModal}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleUpdateSet}
+              >
+                <Text style={[styles.modalButtonText, { color: '#fff' }]}>Save Changes</Text>
               </TouchableOpacity>
             </View>
           </View>

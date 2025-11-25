@@ -1,4 +1,5 @@
 const FlashcardSet = require('../models/FlashcardSet');
+const Flashcard = require('../models/Flashcard');
 
 // @desc    Get all flashcard sets
 // @route   GET /api/flashcard-sets
@@ -102,8 +103,12 @@ const deleteFlashcardSet = async (req, res) => {
       return res.status(401).json({ message: 'Not authorized' });
     }
 
+    // Delete all flashcards associated with this set
+    await Flashcard.deleteMany({ _id: { $in: flashcardSet.flashcards } });
+
     await flashcardSet.deleteOne();
-    res.json({ message: 'Flashcard set removed' });
+    
+    res.json({ message: 'Flashcard set and associated flashcards removed' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

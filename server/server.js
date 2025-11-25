@@ -12,6 +12,20 @@ app.use(express.json());
 // Static folder
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbConnected = dbState === 1;
+  
+  res.json({
+    status: 'OK',
+    server: 'running',
+    database: dbConnected ? 'connected' : 'disconnected',
+    dbState: dbState, // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Add direct audio proxy route to ensure the endpoint exists and works reliably
 app.get('/api/jishoApi/audio', async (req, res) => {
   const text = req.query.text;
@@ -98,9 +112,34 @@ app.use('/api/books', bookRoutes);
 app.use('/api/flashcard-sets', flashcardSetRoutes);
 app.use('/api/flashcards', flashcardRoutes);
 // MongoDB connection
+console.log('\n=== MONGODB CONNECTION ===');
+console.log('MONGO_URI:', process.env.MONGO_URI ? 'CONFIGURED' : 'NOT CONFIGURED');
+
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ MongoDB connected'))
-  .catch(err => console.log('❌ MongoDB error:', err));
+  .then(() => {
+    console.log('✅ MongoDB connected successfully');
+    console.log('Database name: vpan_app_db');
+    console.log('Connection state:', mongoose.connection.readyState);
+    console.log('=== CONNECTION READY ===\n');
+  })
+  .catch(err => {
+    console.log('❌ MongoDB connection error:', err.message);
+    console.log('Error code:', err.code);
+    console.log('=== CONNECTION FAILED ===\n');
+  });
+
+// Log connection events
+mongoose.connection.on('connected', () => {
+  console.log('🔗 Mongoose connected to MongoDB');
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️  Mongoose disconnected from MongoDB');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.log('❌ Mongoose connection error:', err.message);
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

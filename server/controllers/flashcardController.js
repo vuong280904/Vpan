@@ -220,33 +220,60 @@ const updateFlashcard = async (req, res) => {
 // @access  Private
 const deleteFlashcard = async (req, res) => {
   try {
+    console.log('\n=== DELETE FLASHCARD ===' );
+    console.log('Flashcard ID:', req.params.id);
+    console.log('User ID:', req.user?.id);
+    console.log('DB Connection State:', require('mongoose').connection.readyState); // 1 = connected
+    
+    if (require('mongoose').connection.readyState !== 1) {
+      console.log('ERROR: Database not connected');
+      return res.status(500).json({ error: 'Database connection failed' });
+    }
+    
     const flashcard = await Flashcard.findById(req.params.id);
+    console.log('Flashcard found:', flashcard ? 'YES' : 'NO');
 
     if (!flashcard) {
+      console.log('Error: Flashcard not found');
       return res.status(404).json({ message: 'Flashcard not found' });
     }
 
+    console.log('Flashcard createdBy:', flashcard.createdBy);
+    console.log('Comparing:', flashcard.createdBy.toString(), '===', req.user.id);
+    
     if (flashcard.createdBy.toString() !== req.user.id) {
+      console.log('Error: Not authorized');
       return res.status(401).json({ message: 'Not authorized' });
     }
 
     // Delete image file if exists
     if (flashcard.image) {
       const imagePath = path.join(__dirname, '..', flashcard.image);
+      console.log('Deleting image at:', imagePath);
       fs.unlink(imagePath, (err) => {
         if (err) console.error('Error deleting image:', err);
       });
     }
 
     // Remove flashcard from all sets
-    await FlashcardSet.updateMany(
+    console.log('Removing flashcard from all sets');
+    const updateResult = await FlashcardSet.updateMany(
       {},
       { $pull: { flashcards: flashcard._id } }
     );
+    console.log('Sets updated:', updateResult.modifiedCount);
 
-    await flashcard.deleteOne();
+    const deleteResult = await flashcard.deleteOne();
+    console.log('Flashcard deleted, result:', deleteResult);
+    console.log('Flashcard deleted successfully');
+    console.log('=== DELETE FLASHCARD COMPLETE ===\n');
     res.json({ message: 'Flashcard removed' });
   } catch (err) {
+    console.error('=== DELETE FLASHCARD ERROR ===');
+    console.error('Error name:', err.name);
+    console.error('Error message:', err.message);
+    console.error('Error stack:', err.stack);
+    console.error('=== END ERROR ===\n');
     res.status(500).json({ error: err.message });
   }
 };
