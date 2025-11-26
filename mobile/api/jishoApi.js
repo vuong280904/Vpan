@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 export async function searchJapaneseWord(keyword) {
   if (!keyword || !keyword.trim()) return [];
-  const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.2.7";
+  const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.2.6";
 
   try {
     const response = await fetch(
@@ -24,7 +24,7 @@ export async function searchJapaneseWord(keyword) {
 // New: return server audio endpoint URL (no fetching)
 export async function getPronunciationUrl(text) {
   if (!text || !text.trim()) return '';
-  const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.2.7";
+  const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.2.6";
 
   // Return the server endpoint that proxies the TTS audio.
   // The client can use this URL directly with Audio.Sound.createAsync({ uri }) or with HTML Audio on web

@@ -1,30 +1,41 @@
-// app/utils/api.ts
+// utils/api.ts – CHẮN CHẮN CHẠY NGON
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Platform } from 'react-native';
 
-// IP máy bạn (đã test chạy ngon)
 const HOST = '192.168.2.6:5000';
-
-// Tự động chọn baseURL đúng nền tảng
-const API_BASE = Platform.OS === 'web' 
-  ? 'http://localhost:5000' 
-  : `http://${HOST}`;
+const API_BASE = Platform.OS === 'web' ? 'http://localhost:5000' : `http://${HOST}`;
 
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
-// (Tùy chọn) Thêm interceptor để log lỗi đẹp hơn
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    console.error('API Error:', error.response?.data || error.message);
-    return Promise.reject(error);
+api.interceptors.request.use(async (config) => {
+  try {
+    // THỬ TẤT CẢ CÁC KEY PHỔ BIẾN
+    const keys = ['@user', '@auth_user', 'user', '@storage_user', 'vpan_user'];
+    let token = null;
+
+    for (const key of keys) {
+      const data = await AsyncStorage.getItem(key);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed?.token) {
+          token = parsed.token;
+          console.log('Token found in key:', key);
+          break;
+        }
+      }
+    }
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch (e) {
+    // ignore
   }
-);
+  return config;
+});
 
 export default api;

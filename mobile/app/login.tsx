@@ -1,3 +1,4 @@
+import { useSocket } from '@/context/SocketContext';
 import axios from "axios";
 import { Link } from "expo-router";
 import { useState } from "react";
@@ -29,7 +30,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
-
+  const { socket } = useSocket(); // ← lấy socket từ context
   const handleLogin = async () => {
     if (!email || !password) {
       return Alert.alert("Lỗi", "Vui lòng nhập đầy đủ email và mật khẩu");
@@ -47,7 +48,6 @@ export default function LoginScreen() {
 
       // Gọi hàm login từ AuthContext
       await login(res.data.token, res.data.user);
-
       Alert.alert("Thành công", "Đăng nhập thành công!");
     } catch (err: any) {
       console.error("ĐĂNG NHẬP THẤT BẠI:", err);

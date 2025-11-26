@@ -1,5 +1,6 @@
 // app/_layout.tsx ← TÊN PHẢI LÀ _layout.tsx (có dấu gạch dưới)
 import { AuthProvider } from '@/context/AuthContext';
+import { SocketProvider } from '@/context/SocketContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -23,6 +24,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
+      <SocketProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="login" />
@@ -31,6 +33,7 @@ export default function RootLayout() {
           <Stack.Screen name="+not-found" />
         </Stack>
       </ThemeProvider>
+      </SocketProvider>
     </AuthProvider>
   );
 }

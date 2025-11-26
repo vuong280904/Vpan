@@ -15,7 +15,11 @@ const userSchema = new mongoose.Schema({
   // Relations
   flashcardSets: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FlashcardSet' }],
 
-  role: { type: String, enum: ['user', 'admin', 'premium'], default: 'user' },
+  role: {
+  type: String,
+  enum: ['user', 'teacher', 'admin'],
+  default: 'user'
+},
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
