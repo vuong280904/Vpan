@@ -67,42 +67,86 @@ const addFlashcardToSetHelper = async (setId, flashcardId, userId) => {
 // @access  Private
 const createFlashcard = async (req, res) => {
   try {
-    const { vocabulary, phonetic, meaning, setId } = req.body; // Added setId
+    const { vocabulary, phonetic, meaning, setId } = req.body;
 
-    console.log('createFlashcard - vocabulary:', vocabulary, 'meaning:', meaning, 'setId:', setId); // Added setId to log
-    console.log('createFlashcard - file:', req.file ? req.file.filename : 'NO FILE');
+    console.log('\n=== CREATE FLASHCARD ===');
+    console.log('Request body keys:', Object.keys(req.body));
+    console.log('Vocabulary:', vocabulary);
+    console.log('Meaning:', meaning);
+    console.log('Phonetic:', phonetic);
+    console.log('SetId:', setId);
+    console.log('File received:', req.file ? 'YES ✅' : 'NO ❌');
+    
+    if (req.file) {
+      console.log('📁 File Details:');
+      console.log('  - Fieldname:', req.file.fieldname);
+      console.log('  - Filename:', req.file.filename);
+      console.log('  - Mimetype:', req.file.mimetype);
+      console.log('  - Size:', req.file.size, 'bytes');
+      console.log('  - Path:', req.file.path);
+      console.log('  - Encoding:', req.file.encoding);
+      
+      // Verify file exists on disk
+      if (fs.existsSync(req.file.path)) {
+        const stats = fs.statSync(req.file.path);
+        console.log('✅ File verified on disk - Size on disk:', stats.size, 'bytes');
+      } else {
+        console.log('⚠️  WARNING - File path does not exist on disk:', req.file.path);
+      }
+    } else {
+      console.log('FormData fields:', Object.keys(req.body));
+    }
 
     if (!vocabulary || !meaning) {
-      console.error('Missing required fields');
+      console.error('❌ Missing required fields');
       return res.status(400).json({ message: 'Vocabulary and meaning are required' });
     }
+
+    const imagePath = req.file ? `/uploads/flashcards/${req.file.filename}` : null;
+    console.log('📝 Image path to save:', imagePath);
 
     const flashcard = new Flashcard({
       vocabulary,
       phonetic: phonetic || '',
       meaning,
-      image: req.file ? `/uploads/flashcards/${req.file.filename}` : null,
+      image: imagePath,
       createdBy: req.user.id,
     });
 
+    console.log('💾 Flashcard object before save:', {
+      vocabulary: flashcard.vocabulary,
+      phonetic: flashcard.phonetic,
+      meaning: flashcard.meaning,
+      image: flashcard.image,
+      createdBy: flashcard.createdBy,
+    });
+
     const createdFlashcard = await flashcard.save();
-    console.log('Flashcard created successfully:', createdFlashcard._id);
+    console.log('✅ Flashcard created successfully:', createdFlashcard._id);
+    console.log('💾 Flashcard object after save:', {
+      _id: createdFlashcard._id,
+      vocabulary: createdFlashcard.vocabulary,
+      phonetic: createdFlashcard.phonetic,
+      meaning: createdFlashcard.meaning,
+      image: createdFlashcard.image,
+      createdBy: createdFlashcard.createdBy,
+    });
+    console.log('📤 About to send response with image:', createdFlashcard.image);
+    console.log('=== CREATE FLASHCARD COMPLETE ===\n');
 
     // If setId is provided, add the flashcard to the set using the helper
     if (setId) {
       try {
         await addFlashcardToSetHelper(setId, createdFlashcard._id, req.user.id);
-        console.log(`Flashcard ${createdFlashcard._id} added to set ${setId}`);
+        console.log(`✅ Flashcard ${createdFlashcard._id} added to set ${setId}`);
       } catch (addSetError) {
-        console.warn(`Failed to add flashcard to set ${setId}: ${addSetError.message}`);
-        // Decide if this should be a critical error or just a warning
-        // For now, we'll proceed and just return the created flashcard, with a warning.
+        console.warn(`⚠️  Failed to add flashcard to set ${setId}: ${addSetError.message}`);
       }
     }
 
     res.status(201).json(createdFlashcard);
   } catch (err) {
-    console.error('Error creating flashcard:', err);
+    console.error('❌ Error creating flashcard:', err);
     // Clean up uploaded file if error occurs
     if (req.file) {
       fs.unlink(req.file.path, (err) => {
@@ -178,11 +222,29 @@ const updateFlashcard = async (req, res) => {
     const { vocabulary, phonetic, meaning } = req.body;
     const flashcard = await Flashcard.findById(req.params.id);
 
+    console.log('\n=== UPDATE FLASHCARD ===');
+    console.log('Flashcard ID:', req.params.id);
+    console.log('Vocabulary:', vocabulary);
+    console.log('Meaning:', meaning);
+    console.log('Phonetic:', phonetic);
+    console.log('File received:', req.file ? 'YES' : 'NO');
+    
+    if (req.file) {
+      console.log('File details:', {
+        filename: req.file.filename,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        path: req.file.path,
+      });
+    }
+
     if (!flashcard) {
+      console.log('❌ Flashcard not found');
       return res.status(404).json({ message: 'Flashcard not found' });
     }
 
     if (flashcard.createdBy.toString() !== req.user.id) {
+      console.log('❌ Not authorized to update this flashcard');
       return res.status(401).json({ message: 'Not authorized' });
     }
 
@@ -194,18 +256,33 @@ const updateFlashcard = async (req, res) => {
       // Delete old image if exists
       if (flashcard.image) {
         const oldImagePath = path.join(__dirname, '..', flashcard.image);
+        console.log('Deleting old image:', oldImagePath);
         fs.unlink(oldImagePath, (err) => {
           if (err) console.error('Error deleting old image:', err);
         });
       }
       flashcard.image = `/uploads/flashcards/${req.file.filename}`;
+      console.log('✅ New image set:', flashcard.image);
+    } else {
+      console.log('ℹ️  No new image provided, keeping existing image:', flashcard.image);
     }
 
     flashcard.updatedAt = Date.now();
     const updatedFlashcard = await flashcard.save();
 
+    console.log('✅ Flashcard updated successfully');
+    console.log('📤 Updated flashcard data:', {
+      _id: updatedFlashcard._id,
+      vocabulary: updatedFlashcard.vocabulary,
+      phonetic: updatedFlashcard.phonetic,
+      meaning: updatedFlashcard.meaning,
+      image: updatedFlashcard.image,
+    });
+    console.log('=== UPDATE FLASHCARD COMPLETE ===\n');
+
     res.json(updatedFlashcard);
   } catch (err) {
+    console.error('❌ Error updating flashcard:', err.message);
     if (req.file) {
       fs.unlink(req.file.path, (err) => {
         if (err) console.error('Error deleting file:', err);

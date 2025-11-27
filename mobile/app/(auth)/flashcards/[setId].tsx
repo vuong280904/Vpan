@@ -498,14 +498,25 @@ export default function FlashcardDetailScreen() {
       formData.append('phonetic', phonetic);
       formData.append('meaning', meaning);
 
-      // Only append image if it's a new image (not from server)
-      if (imageUri && !imageUri.includes('localhost')) {
+      // Only append image if it's a NEW image (from image picker, not from server)
+      const isNewImage = imageUri && !imageUri.includes('localhost') && !imageUri.includes('http');
+      
+      console.log('=== UPDATE FLASHCARD DEBUG ===');
+      console.log('Image URI:', imageUri);
+      console.log('Contains localhost:', imageUri?.includes('localhost'));
+      console.log('Starts with http:', imageUri?.startsWith('http'));
+      console.log('Is new image:', isNewImage);
+      
+      if (isNewImage) {
         const filename = imageUri.split('/').pop() || 'image.jpg';
+        console.log('Adding new image to update:', filename);
         formData.append('image', {
           uri: imageUri,
           type: 'image/jpeg',
           name: filename,
         } as any);
+      } else {
+        console.log('Keeping existing image, not sending new file');
       }
 
       console.log('Updating flashcard...');
@@ -616,11 +627,32 @@ export default function FlashcardDetailScreen() {
 
       if (imageUri) {
         const filename = imageUri.split('/').pop() || 'image.jpg';
-        formData.append('image', {
-          uri: imageUri,
-          type: 'image/jpeg',
-          name: filename,
-        } as any);
+        
+        // For web platform: convert blob URI to File object
+        if (imageUri.startsWith('blob:')) {
+          try {
+            console.log('Converting blob URI to File...');
+            const response = await fetch(imageUri);
+            const blob = await response.blob();
+            const file = new File([blob], filename, { type: blob.type });
+            console.log('File created:', { name: file.name, size: file.size, type: file.type });
+            formData.append('image', file);
+          } catch (blobError) {
+            console.error('Error converting blob to file:', blobError);
+            formData.append('image', {
+              uri: imageUri,
+              type: 'image/jpeg',
+              name: filename,
+            } as any);
+          }
+        } else {
+          // For native platforms: use standard FormData format
+          formData.append('image', {
+            uri: imageUri,
+            type: 'image/jpeg',
+            name: filename,
+          } as any);
+        }
       }
 
       console.log('Creating flashcard...');
