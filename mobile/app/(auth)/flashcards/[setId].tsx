@@ -13,6 +13,7 @@ import {
   Image,
   Platform,
   Animated,
+  Pressable, 
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -321,93 +322,97 @@ const styles = StyleSheet.create({
   },
 });
 
-const FlashcardItem = ({ item, onEdit, onDelete }: { item: any, onEdit: () => void, onDelete: () => void }) => {
-    const [isFlipped, setIsFlipped] = useState(false);
-    const flipAnimation = useRef(new Animated.Value(0)).current;
-  
-    const flipCard = () => {
-      const toValue = isFlipped ? 0 : 180;
-      Animated.spring(flipAnimation, {
-        toValue,
-        friction: 8,
-        tension: 10,
-        useNativeDriver: Platform.OS !== 'web',
-      }).start();
-      setIsFlipped(!isFlipped);
-    };
-  
-    const frontAnimatedStyle = {
-      transform: [
-        {
-          rotateY: flipAnimation.interpolate({
-            inputRange: [0, 180],
-            outputRange: ['0deg', '180deg'],
-          }),
-        },
-      ],
-    };
-  
-    const backAnimatedStyle = {
-      transform: [
-        {
-          rotateY: flipAnimation.interpolate({
-            inputRange: [0, 180],
-            outputRange: ['180deg', '360deg'],
-          }),
-        },
-      ],
-    };
-  
-    return (
-      <TouchableOpacity onPress={flipCard} activeOpacity={0.8}>
-        <View style={styles.flashcardItem}>
-          <Animated.View
-            style={[styles.flashcardInner, styles.flashcardFront, frontAnimatedStyle]}
-          >
-            {item.image && (
-              <View style={styles.imageContainer}>
-                <Image
-                  source={{
-                    uri: item.image.startsWith('http')
-                      ? item.image
-                      : `${API_URL.replace('/api', '')}${item.image}`,
-                  }}
-                  style={styles.flashcardImage}
-                />
-                <Text style={styles.imageFormatText}>
-                    {getFileExtension(item.image)}
-                </Text>
-              </View>
-            )}
-            <View style={styles.flashcardContent}>
-              <Text style={styles.vocabulary}>{item.vocabulary}</Text>
-              {item.phonetic && (
-                <Text style={styles.phonetic}>/{item.phonetic}/</Text>
-              )}
-            </View>
-          </Animated.View>
-  
-          <Animated.View
-            style={[styles.flashcardInner, styles.flashcardBack, backAnimatedStyle]}
-          >
-            <View style={styles.flashcardContent}>
-              <Text style={styles.meaning}>{item.meaning}</Text>
-            </View>
-            <View style={styles.cardActions}>
-              <TouchableOpacity onPress={onEdit} style={[styles.cardButton, styles.editButton]}>
-                <Ionicons name="pencil" size={20} color="#fff" />
-                <Text style={styles.cardButtonText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={onDelete} style={[styles.cardButton, styles.deleteButton]}>
-                <Ionicons name="trash" size={20} color="#fff" />
-                <Text style={styles.cardButtonText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        </View>
-      </TouchableOpacity>
-    );
+const FlashcardItem = ({ item, onEdit, onDelete }: { item: any; onEdit: () => void; onDelete: (id: string) => void; }) => {
+  const [isFlipped, setIsFlipped] = useState(false);
+  const flipAnim = useRef(new Animated.Value(0)).current;
+
+  const flipCard = () => {
+    Animated.spring(flipAnim, {
+      toValue: isFlipped ? 0 : 1,
+      friction: 8,
+      tension: 10,
+      useNativeDriver: true,
+    }).start();
+    setIsFlipped(!isFlipped);
   };
+
+  const frontStyle = {
+    transform: [{ perspective: 1000 }, { rotateY: flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }],
+    opacity: flipAnim.interpolate({ inputRange: [0, 0.5, 0.5, 1], outputRange: [1, 0, 0, 1] }),
+    zIndex: isFlipped ? 0 : 1,
+  };
+
+  const backStyle = {
+    transform: [{ perspective: 1000 }, { rotateY: flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] }) }],
+    opacity: flipAnim.interpolate({ inputRange: [0, 0.5, 0.5, 1], outputRange: [0, 0, 1, 1] }),
+    zIndex: isFlipped ? 1 : 0,
+  };
+
+  return (
+    <View style={styles.flashcardItem}>
+      <Pressable 
+  onPress={flipCard} 
+  style={{ flex: 1 }} 
+  pointerEvents="box-none">
+
+        {/* Mặt trước */}
+        <Animated.View
+          style={[styles.flashcardInner, styles.flashcardFront, frontStyle, { position: 'absolute', width: '100%', height: '100%' }]}
+          pointerEvents={isFlipped ? 'none' : 'auto'}
+        >
+          {item.image && (
+            <View style={styles.imageContainer}>
+              <Image source={{ uri: item.image.startsWith('http') ? item.image : `http://localhost:5000${item.image}` }} style={styles.flashcardImage} />
+              <Text style={styles.imageFormatText}>{getFileExtension(item.image)}</Text>
+            </View>
+          )}
+          <View style={styles.flashcardContent}>
+            <Text style={styles.vocabulary}>{item.vocabulary}</Text>
+            {item.phonetic && <Text style={styles.phonetic}>/{item.phonetic}/</Text>}
+          </View>
+        </Animated.View>
+
+        {/* Mặt sau */}
+        <Animated.View
+          style={[styles.flashcardInner, styles.flashcardBack, backStyle, { position: 'absolute', width: '100%', height: '100%' }]}
+          pointerEvents={isFlipped ? 'auto' : 'none'}
+        >
+          <View style={styles.flashcardContent}>
+            <Text style={styles.meaning}>{item.meaning}</Text>
+          </View>
+
+          <View style={styles.cardActions}>
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              style={[styles.cardButton, styles.editButton]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="pencil" size={18} color="#fff" />
+              <Text style={styles.cardButtonText}>Edit</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                console.log('DELETE PRESSED – GỌI XÓA ID:', item._id);
+                onDelete(item._id ?? item.id); 
+                console.log('ID được truyền sang handleDeleteFlashcard:', item._id ?? item.id);// ← Bây giờ sẽ chạy ngon 100%
+              }}
+              style={[styles.cardButton, styles.deleteButton]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="trash" size={18} color="#fff" />
+              <Text style={styles.cardButtonText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </Pressable>
+    </View>
+  );
+};
 
 export default function FlashcardDetailScreen() {
   const { setId } = useLocalSearchParams();
@@ -426,59 +431,42 @@ export default function FlashcardDetailScreen() {
   const [meaning, setMeaning] = useState('');
   const [imageUri, setImageUri] = useState('');
 
-  const handleDeleteFlashcard = async (flashcardId: string) => {
-    Alert.alert(
-      'Delete Flashcard',
-      'Are you sure you want to delete this flashcard?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const token = await getAuthToken();
-              console.log('Delete token:', token ? 'EXISTS' : 'MISSING');
-              if (!token) {
-                Alert.alert('Error', 'Authentication failed. Please login again.');
-                return;
-              }
+  // Hàm này chỉ hiện Alert xác nhận – KHÔNG async
+const handleDeleteFlashcard = (flashcardId: string) => {
+  console.log('handleDeleteFlashcard called with ID:', flashcardId);
 
-              console.log('Attempting to delete flashcard:', flashcardId);
-              console.log('Delete URL:', `${API_URL}/flashcards/${flashcardId}`);
-              
-              const response = await fetch(`${API_URL}/flashcards/${flashcardId}`, {
-                method: 'DELETE',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                },
-              });
+  // DÙNG window.confirm THAY CHO Alert.alert
+  const confirmed = window.confirm('Bạn có chắc chắn muốn xóa flashcard này không?');
+  
+  if (confirmed) {
+    performDelete(flashcardId);
+  }
+};
 
-              console.log('Delete response status:', response.status);
-              const responseData = await response.json();
-              console.log('Delete response data:', responseData);
+const performDelete = async (flashcardId: string) => {
+  try {
+    const token = await getAuthToken();
+    if (!token) {
+      window.alert('Lỗi: Chưa đăng nhập');
+      return;
+    }
 
-              if (response.ok) {
-                setFlashcards(prevFlashcards =>
-                  prevFlashcards.filter(card => card._id !== flashcardId)
-                );
-                console.log('Flashcard removed from state');
-                Alert.alert('Success', 'Flashcard deleted successfully!');
-              } else {
-                Alert.alert('Error', responseData.message || `Failed to delete flashcard (${response.status})`);
-              }
-            } catch (error) {
-              console.error('Error deleting flashcard:', error);
-              Alert.alert('Error', 'An error occurred while deleting the flashcard.');
-            }
-          },
-        },
-      ]
-    );
-  };
+    const res = await fetch(`${API_URL}/flashcards/${flashcardId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (res.ok) {
+      setFlashcards(prev => prev.filter(c => c._id !== flashcardId));
+      window.alert('Đã xóa flashcard thành công!');
+    } else {
+      const err = await res.json();
+      window.alert('Lỗi: ' + (err.message || 'Không thể xóa'));
+    }
+  } catch (error) {
+    window.alert('Lỗi mạng, vui lòng thử lại');
+  }
+};
 
   const handleUpdateFlashcard = async () => {
     if (!vocabulary.trim() || !meaning.trim()) {
@@ -786,7 +774,8 @@ export default function FlashcardDetailScreen() {
             <FlashcardItem 
                 item={item} 
                 onEdit={() => handleEdit(item)}
-                onDelete={() => handleDeleteFlashcard(item._id)}
+                onDelete={handleDeleteFlashcard}
+                
             />
         )}
         keyExtractor={item => item._id}
