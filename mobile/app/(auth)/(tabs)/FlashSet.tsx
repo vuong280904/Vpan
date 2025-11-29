@@ -19,7 +19,8 @@ if (Platform.OS !== 'web') {
 }
 
 // TODO: Replace with your actual API base URL
-const API_URL = 'http://localhost:5000/api';
+import { API_BASE_URL } from '@/services/config';
+const API_URL = `${API_BASE_URL}/api`;   // ← QUAN TRỌNG: phải cộng /api
 
 const getAuthToken = async () => {
   try {
@@ -101,56 +102,49 @@ export default function FlashcardSetsScreen() {
     }
   };
 
-  const handleDelete = (setId: string) => {
-    Alert.alert(
-      'Delete Set',
-      'Are you sure you want to delete this flashcard set?',
-      [
-        { text: 'Cancel', style: 'cancel', onPress: () => setMenuVisibleFor(null) },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const token = await getAuthToken();
-              console.log('Delete set token:', token ? 'EXISTS' : 'MISSING');
-              if (!token) {
-                Alert.alert('Error', 'Authentication failed. Please login again.');
-                setMenuVisibleFor(null);
-                return;
-              }
+    const handleDelete = (setId: string) => {
+    // Dùng window.confirm cho cả web và mobile (Alert.alert bị chặn trên web)
+    const confirmed = window.confirm('XÓA TOÀN BỘ BỘ FLASHCARD NÀY?\nTất cả flashcard bên trong sẽ bị xóa vĩnh viễn!');
 
-              console.log('Attempting to delete flashcard set:', setId);
-              console.log('Delete URL:', `${API_URL}/flashcard-sets/${setId}`);
-              
-              const response = await fetch(`${API_URL}/flashcard-sets/${setId}`, {
-                method: 'DELETE',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                },
-              });
+    if (!confirmed) {
+      setMenuVisibleFor(null);
+      return;
+    }
 
-              console.log('Delete response status:', response.status);
-              const responseData = await response.json();
-              console.log('Delete response data:', responseData);
+    // HIỆN POPUP ĐẦU TIÊN ĐỂ BIẾT ĐANG GỌI URL GÌ
+    window.alert(`Đang xóa set ID: ${setId}\nURL: ${API_URL}/flashcard-sets/${setId}`);
 
-              if (response.ok) {
-                setSets(prevSets => prevSets.filter(set => set._id !== setId));
-                setMenuVisibleFor(null);
-                console.log('FlashSet removed from state');
-                Alert.alert('Success', 'Flashcard set deleted successfully!');
-              } else {
-                Alert.alert('Error', responseData.message || `Failed to delete flashcard set (${response.status})`);
-              }
-            } catch (error) {
-              console.error('Error deleting flashcard set:', error);
-              Alert.alert('Error', 'An error occurred while deleting the flashcard set.');
-              setMenuVisibleFor(null);
-            }
-          },
+    deleteSetNow(setId);
+  };
+
+  const deleteSetNow = async (setId: string) => {
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        window.alert('Chưa đăng nhập!');
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/flashcard-sets/${setId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
         },
-      ]
-    );
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // XÓA KHỎI DANH SÁCH NGAY LẬP TỨC
+        setSets(prev => prev.filter(s => s._id !== setId));
+        setMenuVisibleFor(null);
+        window.alert('XÓA THÀNH CÔNG!\nBộ flashcard đã biến mất!');
+      } else {
+        window.alert(`XÓA THẤT BẠI\nStatus: ${res.status}\n${JSON.stringify(data)}`);
+      }
+    } catch (e: any) {
+      window.alert('LỖI MẠNG\n' + e.message);
+    }
   };
 
   const handleCreateSet = async () => {
