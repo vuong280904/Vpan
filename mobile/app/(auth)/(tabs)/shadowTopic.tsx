@@ -18,10 +18,7 @@ interface Topic {
   description: string;
 }
 
-// ĐỔI IP NÀY CHO ĐÚNG
-const BASE_URL = 'http://10.249.2.233:5000';
-
-// ⭐ ảnh linh vật
+const BASE_URL = 'http://192.168.2.7:5000';
 const MASCOT = require('../../../assets/images/linhvat.png');
 
 const ShadowTopicScreen = () => {
@@ -37,11 +34,9 @@ const ShadowTopicScreen = () => {
   const fetchTopics = async () => {
     try {
       setError(null);
-      console.log('Fetching topics...');
       const res = await axios.get(`${BASE_URL}/api/shadow`);
       setTopics(res.data);
     } catch (err) {
-      console.error('Error fetching topics:', err);
       setError('Không tải được danh sách topic. Kiểm tra server / mạng.');
     } finally {
       setLoading(false);
@@ -66,9 +61,9 @@ const ShadowTopicScreen = () => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.full}>
+      <SafeAreaView style={styles.full}>        
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
+          <ActivityIndicator size="large" />
           <Text style={{ marginTop: 8 }}>Đang tải topic...</Text>
         </View>
       </SafeAreaView>
@@ -76,15 +71,12 @@ const ShadowTopicScreen = () => {
   }
 
   return (
-    <SafeAreaView style={styles.full}>
-      
-      {/* ⭐ BANNER CHÀO MỪNG */}
+    <SafeAreaView style={styles.full}>      
       <View style={styles.banner}>
         <View style={{ flex: 1 }}>
           <Text style={styles.bannerTitle}>Chào mừng bạn</Text>
           <Text style={styles.bannerSubtitle}>đến với lớp luyện nói của Pan</Text>
         </View>
-
         <Image source={MASCOT} style={styles.mascot} resizeMode="contain" />
       </View>
 
@@ -113,62 +105,65 @@ const ShadowTopicScreen = () => {
 const styles = StyleSheet.create({
   full: {
     flex: 1,
-    backgroundColor: '#f1dff7ff',
+    backgroundColor: '#FFEAF7'  // nền hồng pastel cute anime // tím pastel nhạt hơn, ít chói  // pastel tím nhạt dịu mắt,
   },
 
-  /* ⭐ Banner */
   banner: {
     flexDirection: 'row',
-    backgroundColor: '#0d5cdcff',
+    backgroundColor: 'rgba(235, 211, 195, 0.6)',  // banner hồng ngọt kiểu anime // banner dịu hơn, giảm độ rực  // tím pastel nhẹ hơn,
     margin: 12,
-    padding: 16,
-    borderRadius: 16,
+    padding: 18,
+    borderRadius: 20,
     alignItems: 'center',
-    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.18 , // tăng bóng mềm kiểu anime5,
+    shadowRadius: 6,
+    elevation: 6,
   },
   bannerTitle: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '700',
+    color: '#d33d0bff',
+    fontSize: 20,
+    fontWeight: '800',
   },
   bannerSubtitle: {
-    color: 'white',
+    color: '#d33d0bff',
     fontSize: 14,
-    marginTop: 4,
+    marginTop: 2,
   },
   mascot: {
-    width: 120,
-    height: 120,
-    marginLeft: 1,
+    width: 110,
+    height: 110,
   },
 
   container: {
-    padding: 10,
-    paddingTop: 0, // tránh bị đụng banner
+    padding: 12,
+    paddingTop: 0,
   },
   columnWrapper: {
     justifyContent: 'space-between',
   },
 
-  /* Thẻ topic */
   card: {
     flex: 1,
-    backgroundColor: '#fececeff',
-    marginBottom: 10,
-    padding: 14,
-    borderRadius: 12,
+    backgroundColor: '#fff4c6ff',  // card vàng kem nhẹ kiểu anime // thẻ mint sáng hơn, hòa màu hơn  // xanh mint nhạt, hài hòa hơn,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 22,  // bo góc tròn hơn cho vibe anime,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,  // tăng bóng mềm kiểu anime,
+    shadowRadius: 4,
     elevation: 3,
     marginHorizontal: 5,
   },
   title: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800' , // font đậm dễ thương,
     marginBottom: 6,
-    color: '#1f2937',
+    color: '#4A2C2A'  // nâu soft kiểu anime,
   },
   description: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#6B4E71'  // tím nhạt pastel,
   },
 
   loadingContainer: {
@@ -176,7 +171,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   errorText: {
     color: 'red',
     paddingHorizontal: 12,

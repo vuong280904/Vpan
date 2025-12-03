@@ -1,6 +1,10 @@
+// VpanDashboard.merged.tsx
+import * as expoAv from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import { router } from 'expo-router';
 import {
-  ArrowRight, Bell, Book, BookOpen, Crown, Edit2, Layers, LogOut, MessageSquare, Mic2, Moon, PenTool, Search, Sun, X
+  ArrowRight, Bell, BookOpen, Crown, Edit2, Layers, LogOut, MessageSquare, Mic2,
+  PenTool, Search, Sun, X
 } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -10,11 +14,36 @@ import {
   StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
 } from 'react-native';
 import { io, Socket } from 'socket.io-client';
+
 import { useAuth } from '../../../context/AuthContext';
 import api from '../../utils/api';
-// Avatar an toàn – ưu tiên avatarURL thật, fallback về pravatar (không bao giờ 404)
+import { getPronunciationUrl, searchJapaneseWord } from '../../utils/jishoApi';
+
+// ==================== ASSET ====================
+const PROMO_IMAGE = require('../../../assets/images/NangVipNgay.png'); // chỉnh đường dẫn nếu cần
+
+// ==================== TYPES ====================
+interface JapaneseWord {
+  japanese: { word?: string; reading?: string }[];
+  senses: { english_definitions: string[] }[];
+}
+interface ResultItem {
+  word: string;
+  reading: string;
+  meanings: string;
+}
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatarURL?: string;
+  token?: string;
+}
+
+// ==================== HELPERS ====================
+// Keep safe avatar logic from old homepage (including ImgBB UA fix)
 const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
-  const avatarURL = user.avatarURL && user.avatarURL.trim() !== '' ? user.avatarURL.trim() : null;
+  const avatarURL = user?.avatarURL && user.avatarURL.trim() !== '' ? user.avatarURL.trim() : null;
 
   if (avatarURL) {
     // Fix ImgBB không hiện ảnh do thiếu User-Agent
@@ -24,41 +53,25 @@ const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
         headers: {
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
         }
-      };
+      } as any;
     }
-    return { uri: avatarURL };
+    return { uri: avatarURL } as any;
   }
 
   // Fallback về pravatar
-  return { uri: `https://i.pravatar.cc/300?u=${encodeURIComponent(user.email)}` };
+  return { uri: `https://i.pravatar.cc/300?u=${encodeURIComponent(user?.email || 'unknown')}` } as any;
 };
+
 const { width } = Dimensions.get('window');
-const SOCKET_URL = 'http://10.249.2.233:5000'; // ← ĐỔI THÀNH IP CỦA BẠN
-// Notification realtime
+const SOCKET_URL = 'https://vpan-api.onrender.com';
 
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  avatarURL?: string;
-}
-
-interface ChatItem {
-  id: string;
-  user: User;
-  preview: string;
-  time: string; // "Vừa xong", "5 phút trước", "Hôm qua"...
-  avatar: { uri: string };
-}
-
+// Quick actions
 const QUICK_ACTIONS = [
   { title: 'Flashcard', icon: Layers, color: '#f472b6', bg: '#f9a8d4' },
   { title: 'Luyện Thi', icon: PenTool, color: '#fb923c', bg: '#fdba74' },
   { title: 'Shadowing', icon: Mic2, color: '#38bdf8', bg: '#7dd3fc' },
-  { title: 'Sách Song Ngữ', icon: Book, color: '#8b5cf6', bg: '#c4b5fd' },
+  { title: 'Sách Song Ngữ', icon: BookOpen, color: '#8b5cf6', bg: '#c4b5fd' },
 ];
-
 
 const flashcards = [
   { id: 1, title: 'Flashcard Ngữ pháp N3' },
@@ -66,86 +79,55 @@ const flashcards = [
   { id: 3, title: 'Flashcard Kanji Sơ cấp' },
 ];
 
-// Hàm format thời gian đẹp như Facebook
-const formatTimeAgo = (date: Date): string => {
-  const now = new Date();
-  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+// ==================== COMPONENT ====================
+export default function VpanDashboardMerged() {
+  // promo modal state
+  const [showPromo, setShowPromo] = useState(true); // true => show on mount
 
-  if (diffInSeconds < 60) return 'Vừa xong';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} phút trước`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} giờ trước`;
-  if (diffInSeconds < 172800) return 'Hôm qua';
-  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} ngày trước`;
-  return 'Lâu lắm rồi';
-};
-
-export default function VpanDashboard() {
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const { user, logout } = useAuth();
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [avatarOpen, setAvatarOpen] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showMessageDropdown, setShowMessageDropdown] = useState(false);
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<ResultItem[]>([]);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
-  // Chat state
-  const [recentChats, setRecentChats] = useState<ChatItem[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Chat state (restored)
+  const [recentChats, setRecentChats] = useState<any[]>([]);
   const [recentChatsLoading, setRecentChatsLoading] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const socketRef = useRef<Socket | null>(null);
 
-  // Search state
-  const [searchMode, setSearchMode] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<User[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
+  // UI dropdowns (restored)
+  const [showMessageDropdown, setShowMessageDropdown] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [chatSearchMode, setChatSearchMode] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [chatSearchLoading, setChatSearchLoading] = useState(false);
+  const [searchResultsUsers, setSearchResultsUsers] = useState<User[]>([]);
 
   const isDark = theme === 'dark';
-useEffect(() => {
-  // Nếu đang ở root và chưa có user thì điều hướng theo nền tảng
-  if (user) return; // nếu đã login thì không redirect
 
-  // Phân biệt web vs native
-  if (Platform.OS === 'web') {
-    // thay '/AuthScreen' bằng route web của bạn
-    router.replace('/AuthScreen');
-  } else {
-    // thay '/login' bằng route mobile của bạn
-    router.replace('/login');
-  }
-}, [user]);
+  // promo press handler -> navigate to /upvip
+  const onPromoPress = () => {
+    setShowPromo(false);
+    router.push('/upgrade' as any);
+  };
+
+  // redirect if no user
+  useEffect(() => {
+    if (!user) {
+      router.replace(Platform.OS === 'web' ? '/AuthScreen' : '/login');
+    }
+  }, [user]);
+
   useEffect(() => {
     StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
   }, [isDark]);
 
-  const handleLogout = () => {
-    setAvatarOpen(false);
-    setLogoutModalVisible(true);
-  };
-
-  const confirmLogout = async () => {
-    setLogoutModalVisible(false);
-    try {
-      // 1. Gọi backend logout
-      await api.post('/api/logout', {}, {
-        headers: { Authorization: `Bearer ${(user as any)?.token}` }
-      });
-    } catch (err) {
-      console.error('Logout lỗi:', err);
-    }
-
-    // 2. Xóa token, reset user & role
-    logout(); // hàm trong context của bạn
-    // Nếu cần cụ thể:
-    // setUser(null);
-    // setRole(null); 
-
-    // 3. Redirect về AuthScreen
-    router.replace('/AuthScreen');
-  };
-
-  // ==================== SOCKET CONNECTION ====================
+  // ==================== SOCKET (restore) ====================
   useEffect(() => {
     if (!user) return;
     const token = (user as any)?.token;
@@ -160,128 +142,243 @@ useEffect(() => {
     socket.on('connect', () => console.log('Socket connected:', socket.id));
     socket.on('onlineUsers', (ids: string[]) => setOnlineUsers(ids));
 
+    // new message handling -> update recentChats
     socket.on('newMessage', (msg: any) => {
-      if (msg.sender.id === user.id) return;
-
-      setRecentChats(prev => {
-        const filtered = prev.filter(c => c.user.id !== msg.sender.id);
-        const newChat: ChatItem = {
-          id: msg.chatId || msg._id || Date.now().toString(),
-          user: msg.sender,
-          preview: msg.message || 'Đã gửi một tin nhắn',
-          time: 'Vừa xong',
-          avatar: getSafeAvatar(msg.sender),
-        };
-        return [newChat, ...filtered];
-      });
+      try {
+        if (msg.sender?.id === (user as any)?.id) return;
+        setRecentChats(prev => {
+          const filtered = prev.filter((c: any) => c.user.id !== msg.sender.id);
+          const newChat = {
+            id: msg.chatId || msg._id || Date.now().toString(),
+            user: msg.sender,
+            preview: msg.message || 'Đã gửi một tin nhắn',
+            time: 'Vừa xong',
+            avatar: getSafeAvatar(msg.sender),
+          };
+          return [newChat, ...filtered];
+        });
+      } catch (e) { console.warn(e); }
     });
-    // THÊM 3 DÒNG NÀY VÀO TRONG useEffect SOCKET
-    socket.on('newNotification', (notif) => {
+
+    // notifications events
+    socket.on('newNotification', (notif: any) => {
       setNotifications(prev => [notif, ...prev]);
       if (!notif.read) setUnreadCount(c => c + 1);
     });
 
-    socket.on('notificationsList', (list) => {
+    socket.on('notificationsList', (list: any[]) => {
       setNotifications(list);
       setUnreadCount(list.filter((n: any) => !n.read).length);
     });
+
+    // recentChats list response
+    socket.on('recentChats', (chats: any[]) => {
+      try {
+        const formatted = chats.map(chat => ({
+          id: chat.chatId,
+          user: chat.user || { id: 'unknown', name: 'Người dùng', email: '', avatarURL: '' },
+          preview: chat.preview,
+          time: formatTimeAgo(new Date(chat.lastMessageAt)),
+          avatar: getSafeAvatar(chat.user),
+        }));
+        setRecentChats(formatted);
+        setRecentChatsLoading(false);
+      } catch (e) { console.warn(e); }
+    });
+
     return () => {
-      socket.disconnect();
+      try { socket.disconnect(); } catch (e) {}
       socketRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // THAY TOÀN BỘ useEffect load recent chats (cái đang lỗi 404) BẰNG ĐOẠN NÀY
-  // Load thông báo khi mở dropdown
+  // When opening notifications dropdown, ask server for list
   useEffect(() => {
     if (showNotifications && socketRef.current?.connected) {
       socketRef.current.emit('getNotifications');
     }
   }, [showNotifications]);
-  // THAY TOÀN BỘ useEffect load recent chats BẰNG ĐOẠN NÀY (dán đè vào)
+
+  // When opening message dropdown, fetch recent chats
   useEffect(() => {
     if (!showMessageDropdown || !user || !socketRef.current?.connected) {
       setRecentChats([]);
       return;
     }
-
-    socketRef.current.emit('getRecentChats');
-
-    const handleRecentChats = (chats: any[]) => {
-      const formatted: ChatItem[] = chats.map(chat => ({
-        id: chat.chatId,
-        user: chat.user || { id: 'unknown', name: 'Người dùng', email: '', avatarURL: '' },
-        preview: chat.preview,
-        time: formatTimeAgo(new Date(chat.lastMessageAt)),
-        avatar: getSafeAvatar(chat.user),
-      }));
-      setRecentChats(formatted);
-      setRecentChatsLoading(false);
-    };
-
-    socketRef.current.on('recentChats', handleRecentChats);
     setRecentChatsLoading(true);
-
-    return () => {
-      socketRef.current?.off('recentChats', handleRecentChats);
-    };
+    socketRef.current.emit('getRecentChats');
   }, [showMessageDropdown, user]);
 
-  // ==================== TÌM KIẾM NGƯỜI DÙNG ====================
+  // ==================== CHAT SEARCH (small) ====================
   useEffect(() => {
-    if (!searchMode || !user) {
-      setSearchResults([]);
-      setSearchLoading(false);
+    if (!chatSearchMode || !user) {
+      setSearchResultsUsers([]);
+      setChatSearchLoading(false);
       return;
     }
-
     const token = (user as any)?.token;
     if (!token) return;
-
     const controller = new AbortController();
 
     const fetchUsers = async () => {
-      setSearchLoading(true);
+      setChatSearchLoading(true);
       try {
         const res = await api.get('/api/users/search', {
-          params: { q: searchQuery.trim() || undefined },
+          params: { q: chatSearchQuery.trim() || undefined },
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
-
         const users: User[] = Array.isArray(res.data) ? res.data : [];
-        setSearchResults(users.filter(u => u.id !== user.id));
+        setSearchResultsUsers(users.filter(u => u.id !== user.id));
       } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.error('Lỗi tìm kiếm:', err);
-        }
+        if (err.name !== 'AbortError') console.error('Lỗi tìm người chat:', err);
       } finally {
-        setSearchLoading(false);
+        setChatSearchLoading(false);
       }
     };
 
-    const delay = searchQuery ? 300 : 0;
+    const delay = chatSearchQuery ? 300 : 0;
     const timer = setTimeout(fetchUsers, delay);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [chatSearchMode, chatSearchQuery, user]);
 
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [searchMode, searchQuery, user]);
-
-  const openChat = (targetUser: User) => {
-    setShowMessageDropdown(false);
-    setSearchMode(false);
-    setSearchQuery('');
-    router.push(`/chat/${targetUser.id}`);
+  // ==================== JISHO SEARCH & PRONUNCIATION (from new) ====================
+  const handleSearch = async () => {
+    if (!search.trim()) return;
+    setResults([]);
+    try {
+      const data: JapaneseWord[] = await searchJapaneseWord(search);
+      const formatted: ResultItem[] = data.map((item: JapaneseWord) => ({
+        word: item.japanese[0]?.word || item.japanese[0]?.reading || '',
+        reading: item.japanese[0]?.reading || '',
+        meanings: item.senses
+          .flatMap((s) => s.english_definitions)
+          .slice(0, 3)
+          .join(', ') || '',
+      }));
+      setResults(formatted);
+    } catch (err) {
+      console.error('Lỗi tìm từ:', err);
+    }
   };
 
+  // const playPronunciation = async (text: string) => {
+  //   if (!text) return;
+  //   try {
+  //     const url = await getPronunciationUrl(text);
+  //     if (!url) return;
+
+  //     if (Platform.OS === 'web') {
+  //       const audio = new (window as any).Audio(url);
+  //       audio.play().catch(() => {});
+  //       return;
+  //     }
+
+  //     const { sound } = await expoAv.Audio.Sound.createAsync({ uri: url }, { shouldPlay: true });
+  //     sound.setOnPlaybackStatusUpdate((status) => {
+  //       if (status.isLoaded && status.didJustFinish) {
+  //         sound.unloadAsync().catch(() => {});
+  //       }
+  //     });
+  //   } catch (err) {
+  //     console.error('Lỗi phát âm:', err);
+  //   }
+  // };
+
+  const playPronunciation = async (text: string) => {
+  if (!text) return;
+  try {
+    const url = await getPronunciationUrl(text);
+    if (!url) return;
+
+    console.log('playPronunciation url=', url);
+
+    if (Platform.OS === 'web') {
+      const audio = new (window as any).Audio(url);
+      audio.play().catch((e: any) => console.warn('Web audio play failed', e));
+      return;
+    }
+
+    let finalUrl = url;
+    if (!/^https?:\/\//i.test(finalUrl) && !finalUrl.startsWith('file://')) {
+      finalUrl = encodeURI(finalUrl);
+    }
+
+    // quick GET check
+    let ok = false;
+    try {
+      const resp = await fetch(finalUrl, { method: 'GET', cache: 'no-store' });
+      ok = resp.ok;
+      if (!ok) console.warn('playPronunciation: GET returned', resp.status);
+    } catch (e) {
+      console.warn('playPronunciation: health check failed', e);
+    }
+
+    // nếu GET không ok -> download rồi play local
+    if (!ok) {
+      try {
+        const dest = `${(FileSystem as any).cacheDirectory}tts_${encodeURIComponent(text)}.mp3`;
+        const dl = await FileSystem.downloadAsync(finalUrl, dest);
+        const info = await FileSystem.getInfoAsync(dl.uri);
+        if (!info.exists) throw new Error('Downloaded file not exists');
+
+        // create and play (local)
+        const { sound } = await expoAv.Audio.Sound.createAsync({ uri: dl.uri }, { shouldPlay: true });
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            sound.unloadAsync().catch(() => {});
+          }
+        });
+        return;
+      } catch (e) {
+        console.warn('playPronunciation: download+play failed', e);
+        return;
+      }
+    }
+
+    // play remote directly
+    const { sound } = await expoAv.Audio.Sound.createAsync({ uri: finalUrl }, { shouldPlay: true });
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (status.isLoaded && status.didJustFinish) {
+        sound.unloadAsync().catch(() => {});
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi phát âm:', err);
+  }
+};
+
+  // ==================== UI Helpers ====================
   const closeAll = () => {
     setShowMessageDropdown(false);
     setShowNotifications(false);
     setAvatarOpen(false);
-    setSearchMode(false);
-    setSearchQuery('');
+    setChatSearchMode(false);
+    setChatSearchQuery('');
+  };
+
+  const openChat = (targetUser: User) => {
+    setShowMessageDropdown(false);
+    setChatSearchMode(false);
+    setChatSearchQuery('');
+    router.push(`/chat/${targetUser.id}`);
+  };
+
+  const handleLogout = () => {
+    setAvatarOpen(false);
+    setLogoutModalVisible(true);
+  };
+
+  const confirmLogout = async () => {
+    setLogoutModalVisible(false);
+    try {
+      await api.post('/api/logout', {}, { headers: { Authorization: `Bearer ${(user as any)?.token}` } });
+    } catch (err) {
+      console.error('Logout lỗi:', err);
+    }
+    logout();
+    router.replace('/AuthScreen');
   };
 
   if (!user) {
@@ -299,56 +396,65 @@ useEffect(() => {
 
         {/* HEADER */}
         <View style={[styles.header, isDark ? styles.headerDark : styles.headerLight]}>
-          <TextInput
-            placeholder="Tìm từ, flashcard hoặc bài học..."
-            placeholderTextColor={isDark ? '#BDBDBD' : '#777'}
-            style={[styles.searchInput, isDark ? styles.inputDark : styles.inputLight]}
-          />
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+            <Search color={isDark ? '#94a3b8' : '#64748b'} size={20} style={{ marginLeft: 12 }} />
+            <TextInput
+              placeholder="Tìm từ tiếng Nhật..."
+              placeholderTextColor={isDark ? '#94a3b8' : '#64748b'}
+              value={search}
+              onChangeText={setSearch}
+              onSubmitEditing={handleSearch}
+              returnKeyType="search"
+              style={{ flex: 1, paddingVertical: 12, fontSize: 16, color: isDark ? '#e2e8f0' : '#1f2937' }}
+            />
+            {search.length > 0 && (
+              <TouchableOpacity onPress={() => { setSearch(''); setResults([]); }}>
+                <X color="#94a3b8" size={20} style={{ marginRight: 12 }} />
+              </TouchableOpacity>
+            )}
+          </View>
 
           <View style={styles.headerRight}>
             <TouchableOpacity style={styles.iconCircle} onPress={() => setShowMessageDropdown(s => !s)}>
-              <MessageSquare color={isDark ? '#fff' : '#2b2b2b'} width={20} height={20} />
+              <MessageSquare color={isDark ? '#fff' : '#000'} width={20} height={20} />
             </TouchableOpacity>
 
-            {/* THAY TOÀN BỘ DÒNG NÀY */}
             <TouchableOpacity style={styles.iconCircle} onPress={() => setShowNotifications(s => !s)}>
               <View style={{ position: 'relative' }}>
-                <Bell color={isDark ? '#fff' : '#2b2b2b'} width={20} height={20} />
+                <Bell color={isDark ? '#fff' : '#000'} width={20} height={20} />
                 {unreadCount > 0 && (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </Text>
+                    <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
                   </View>
                 )}
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.iconCircle} onPress={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))}>
-              {isDark ? <Sun color="#ffd166" width={20} height={20} /> : <Moon color="#555" width={20} height={20} />}
+              {isDark ? <Sun color="#ffd166" width={20} height={20} /> : <Sun color="#555" width={20} height={20} />}
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => setAvatarOpen(s => !s)} style={styles.avatarBtn}>
-              <Image source={getSafeAvatar(user)} style={styles.avatar} />
+              <Image source={getSafeAvatar(user as any)} style={styles.avatar} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* DROPDOWN TIN NHẮN - HOÀN HẢO */}
+        {/* MESSAGE DROPDOWN */}
         {showMessageDropdown && (
           <TouchableWithoutFeedback onPress={() => { }}>
             <View pointerEvents="box-none" style={[styles.messageDropdown, isDark ? styles.menuDark : styles.menuLight]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#444' }}>
-                {searchMode ? (
+                {chatSearchMode ? (
                   <>
-                    <TouchableOpacity onPress={() => { setSearchMode(false); setSearchQuery(''); }}>
+                    <TouchableOpacity onPress={() => { setChatSearchMode(false); setChatSearchQuery(''); }}>
                       <X color={isDark ? '#fff' : '#000'} size={24} />
                     </TouchableOpacity>
                     <TextInput
                       placeholder="Tìm người để chat..."
                       placeholderTextColor="#888"
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
+                      value={chatSearchQuery}
+                      onChangeText={setChatSearchQuery}
                       autoFocus
                       style={{ flex: 1, color: isDark ? '#fff' : '#000', fontSize: 16, marginLeft: 10 }}
                     />
@@ -357,7 +463,7 @@ useEffect(() => {
                   <>
                     <Search color={isDark ? '#fff' : '#000'} size={22} />
                     <Text style={[styles.dropdownTitle, isDark ? styles.txtLight : styles.txtDark]}>Tin nhắn</Text>
-                    <TouchableOpacity onPress={() => setSearchMode(true)}>
+                    <TouchableOpacity onPress={() => setChatSearchMode(true)}>
                       <Text style={{ color: '#1877f2', fontWeight: '600' }}>Tìm người</Text>
                     </TouchableOpacity>
                   </>
@@ -365,11 +471,11 @@ useEffect(() => {
               </View>
 
               <ScrollView style={styles.dropdownScroll}>
-                {searchMode ? (
-                  searchLoading ? (
+                {chatSearchMode ? (
+                  chatSearchLoading ? (
                     <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>Đang tìm...</Text>
-                  ) : searchResults?.length > 0 ? (
-                    searchResults.map(u => (
+                  ) : searchResultsUsers?.length > 0 ? (
+                    searchResultsUsers.map(u => (
                       <TouchableOpacity key={u.id} style={styles.messageItem} onPress={() => openChat(u)}>
                         <View style={{ position: 'relative' }}>
                           <Image source={getSafeAvatar(u)} style={styles.messageAvatar} />
@@ -387,7 +493,7 @@ useEffect(() => {
                 ) : recentChatsLoading ? (
                   <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>Đang tải tin nhắn...</Text>
                 ) : recentChats?.length > 0 ? (
-                  recentChats.map(chat => (
+                  recentChats.map((chat: any) => (
                     <TouchableOpacity key={chat.user.id} style={styles.messageItem} onPress={() => openChat(chat.user)}>
                       <View style={{ position: 'relative' }}>
                         <Image source={chat.avatar} style={styles.messageAvatar} />
@@ -420,7 +526,7 @@ useEffect(() => {
           </TouchableWithoutFeedback>
         )}
 
-        {/* DROPDOWN THÔNG BÁO */}
+        {/* NOTIFICATIONS DROPDOWN */}
         {showNotifications && (
           <View pointerEvents="box-none" style={[styles.notificationDropdown, isDark ? styles.menuDark : styles.menuLight]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10 }}>
@@ -434,8 +540,8 @@ useEffect(() => {
               ) : (
                 notifications.map(notif => (
                   <TouchableOpacity
-                    key={notif._id}
-                    style={[styles.notificationItem, !notif.read && { backgroundColor: 'rgba(59,130,246,0.15)' }]}
+                    key={notif._id || notif.id}
+                    style={[styles.notificationItem, !notif.read && { backgroundColor: 'rgba(59,130,246,0.08)' }]}
                   >
                     <Bell color="#1877f2" size={20} style={{ marginRight: 12 }} />
                     <View style={styles.notificationContent}>
@@ -443,7 +549,7 @@ useEffect(() => {
                         {notif.message}
                       </Text>
                       <Text style={[styles.messageTime, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
-                        {notif.time}
+                        {notif.time || notif.createdAt}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -458,61 +564,39 @@ useEffect(() => {
         )}
 
         {/* AVATAR MENU */}
-        {/* AVATAR MENU – ĐÃ THÊM NÚT NÂNG CẤP PREMIER */}
         {avatarOpen && (
           <View pointerEvents="box-none" style={[styles.avatarMenu, isDark ? styles.menuDark : styles.menuLight]}>
             <View style={styles.avatarMenuHeader}>
-              <Image source={getSafeAvatar(user)} style={styles.menuAvatar} />
+              <Image source={getSafeAvatar(user as any)} style={styles.menuAvatar} />
               <View style={{ marginLeft: 10 }}>
                 <Text style={[styles.menuName, isDark ? styles.txtLight : styles.txtDark]}>{user.name}</Text>
                 <Text style={[styles.menuRole, isDark ? styles.txtLightDim : styles.txtDarkDim]}>{user.email}</Text>
               </View>
             </View>
 
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/profile/edit')}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setAvatarOpen(false); router.push('/profile/edit'); }}>
               <Edit2 color={isDark ? '#fff' : '#2b2b2b'} width={18} height={18} />
               <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>Chỉnh sửa hồ sơ</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                setAvatarOpen(false); // đóng menu trước cho mượt
-                router.push('/(auth)/(tabs)/MyFlashcardSetsScreen' as any);
-              }}
-            >
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setAvatarOpen(false); router.push('/(auth)/(tabs)/MyFlashcardSetsScreen' as any); }}>
               <BookOpen color={isDark ? '#fff' : '#2b2b2b'} width={18} height={18} />
-              <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>
-                Quản lý flashcard
-              </Text>
+              <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>Quản lý flashcard</Text>
             </TouchableOpacity>
 
-            {/* NÚT MỚI – NÂNG CẤP PREMIER */}
             <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: 'rgba(251, 191, 36, 0.15)' }]} // highlight vàng nhẹ
-              onPress={() => {
-                setAvatarOpen(false); // đóng dropdown trước cho mượt
-                router.push('/upgrade' as any); // hoặc '/premium', '/billing'...
-              }}>
-              <View style={{
-                backgroundColor: '#f59e0b',
-                padding: 6,
-                borderRadius: 8,
-                marginRight: 10
-              }}>
-                <Crown color="#fff" width={16} height={16} /> {/* bạn cần import Crown */}
+              style={[styles.menuItem, { backgroundColor: 'rgba(251, 191, 36, 0.12)' }]}
+              onPress={() => { setAvatarOpen(false); router.push('/upgrade' as any); }}
+            >
+              <View style={{ backgroundColor: '#f59e0b', padding: 6, borderRadius: 8, marginRight: 10 }}>
+                <Crown color="#fff" width={16} height={16} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.menuText, { color: '#f59e0b', fontWeight: '700' }]}>
-                  Nâng cấp Premier
-                </Text>
-                <Text style={{ fontSize: 11, color: isDark ? '#cbd5e1' : '#64748b' }}>
-                  Mở khóa tất cả tính năng
-                </Text>
+                <Text style={[styles.menuText, { color: '#f59e0b', fontWeight: '700' }]}>Nâng cấp Premier</Text>
+                <Text style={{ fontSize: 11, color: isDark ? '#cbd5e1' : '#64748b' }}>Mở khóa tất cả tính năng</Text>
               </View>
               <ArrowRight color="#f59e0b" width={18} height={18} />
             </TouchableOpacity>
-            {/* Kết thúc nút mới */}
 
             <View style={{ height: 1, backgroundColor: isDark ? '#374151' : '#e5e7eb', marginVertical: 6 }} />
 
@@ -523,75 +607,133 @@ useEffect(() => {
           </View>
         )}
 
-        {/* NỘI DUNG CHÍNH */}
-        <ScrollView contentContainerStyle={styles.contentFullWidth}>
+        {/* MAIN CONTENT */}
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
+          {/* Search results (Jisho) */}
+          {results.length > 0 && (
+            <View style={styles.card}>
+              {results.map((item, i) => (
+                <View key={i} style={{ paddingVertical: 14, borderBottomWidth: i === results.length - 1 ? 0 : 1, borderColor: '#334155' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 22, fontWeight: 'bold', color: isDark ? '#fff' : '#000' }}>
+                        {item.word || item.reading}
+                      </Text>
+                      {item.word && item.reading && (
+                        <Text style={{ fontSize: 16, color: '#3b82f6', marginVertical: 4 }}>【{item.reading}】</Text>
+                      )}
+                      <Text style={{ fontSize: 15, color: isDark ? '#cbd5e1' : '#475569' }}>{item.meanings}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => playPronunciation(item.word || item.reading)}>
+                      <Mic2 color="#3b82f6" size={36} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
 
+          {/* Suggestions */}
+          {results.length === 0 && search.length === 0 && (
+            <View style={styles.card}>
+              <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12, color: isDark ? '#fff' : '#000' }}>
+                Gợi ý từ phổ biến
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {['食べる', '学校', '友達', 'ありがとう', 'おはよう'].map(w => (
+                  <TouchableOpacity key={w} onPress={() => { setSearch(w); handleSearch(); }} style={{ backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 }}>
+                    <Text style={{ color: '#fff', fontWeight: '600' }}>{w}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Quick Actions */}
           <View style={styles.quickActionsGrid}>
-            {QUICK_ACTIONS.map((action, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[styles.actionBtnV2, { backgroundColor: action.bg, shadowColor: action.color }]}
-                onPress={() => {
-                  if (action.title === 'Sách Song Ngữ') {
-                    router.push('/books/list' as any); // Dùng "as any" để bypass tạm thời
-                  } else if (action.title === 'Flashcard') {
-                    router.push('/FlashSet' as any);
-                  } else if (action.title === 'Luyện Thi') {
-                    router.push('/(quiz)' as any);
-                  } else if (action.title === 'Shadowing') {
-                    router.push('/shadowTopic' as any);
-                  }
-                }}
-              >
+            {QUICK_ACTIONS.map((action, i) => (
+              <TouchableOpacity key={i} style={[styles.actionBtn, { backgroundColor: action.bg }]} onPress={() => {
+                if (action.title === 'Flashcard') router.push('/FlashSet' as any);
+                else if (action.title === 'Luyện Thi') router.push('/(quiz)' as any);
+                else if (action.title === 'Shadowing') router.push('/shadowTopic' as any);
+                else if (action.title === 'Sách Song Ngữ') router.push('/books/list' as any);
+              }}>
                 <action.icon color={action.color} size={30} />
-                <Text style={[styles.actionTextV2, { color: action.color }]}>{action.title}</Text>
+                <Text style={{ color: action.color, fontWeight: '800', marginTop: 8 }}>{action.title}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          <View style={[styles.card, isDark ? styles.cardDark : styles.cardLight]}>
-            <Text style={[styles.sectionTitle, isDark ? styles.txtLight : styles.txtDark]}>Flashcards bạn có thể làm</Text>
-            {flashcards.map(f => (
-              <Text key={f.id} style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>• {f.title}</Text>
-            ))}
-          </View>
-
-          <View style={styles.footer}>
-            <Text style={[styles.footerText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
-              © {new Date().getFullYear()} Vpan — Học tiếng Nhật mọi lúc mọi nơi.
+          <View style={styles.card}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12, color: isDark ? '#fff' : '#000' }}>
+              Flashcards bạn có thể làm
             </Text>
+            {flashcards.map(f => (
+              <Text key={f.id} style={{ color: isDark ? '#fff' : '#000', marginVertical: 4 }}>• {f.title}</Text>
+            ))}
           </View>
         </ScrollView>
 
-        {/* MODAL ĐĂNG XUẤT */}
+        {/* Logout Modal */}
         <Modal transparent visible={logoutModalVisible} animationType="fade">
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, isDark ? styles.modalDark : styles.modalLight]}>
-              <Text style={[styles.modalTitle, isDark ? styles.txtLight : styles.txtDark]}>Đăng xuất tài khoản</Text>
-              <Text style={[styles.modalMessage, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
-                Bạn có chắc muốn thoát khỏi tài khoản này?
+            <View style={[styles.modalContent, { backgroundColor: isDark ? '#1e293b' : '#fff' }]}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', color: isDark ? '#fff' : '#000' }}>Đăng xuất</Text>
+              <Text style={{ marginVertical: 16, textAlign: 'center', color: isDark ? '#cbd5e1' : '#666' }}>
+                Bạn có chắc muốn thoát?
               </Text>
-              <View style={styles.modalButtons}>
-                <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setLogoutModalVisible(false)}>
-                  <Text style={styles.modalBtnTextCancel}>Hủy</Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity style={{ flex: 1, padding: 14, backgroundColor: '#666', borderRadius: 12 }} onPress={() => setLogoutModalVisible(false)}>
+                  <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>Hủy</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalBtn, styles.modalBtnConfirm]} onPress={confirmLogout}>
-                  <Text style={styles.modalBtnTextConfirm}>Đăng xuất</Text>
+                <TouchableOpacity style={{ flex: 1, padding: 14, backgroundColor: '#e11d48', borderRadius: 12 }} onPress={confirmLogout}>
+                  <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>Đăng xuất</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
+
+        {/* Promo modal */}
+        <Modal visible={showPromo} transparent animationType="fade" onRequestClose={() => setShowPromo(false)}>
+          <View style={styles.promoOverlay}>
+            <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setShowPromo(false)} />
+            <View style={styles.cardWrapper}>
+              <TouchableOpacity onPress={onPromoPress} activeOpacity={0.9} style={styles.imageBtn}>
+                <Image source={PROMO_IMAGE} style={styles.promoImage} resizeMode="contain" />
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => setShowPromo(false)} style={styles.closeBtn}>
+                <Text style={styles.closeText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
       </SafeAreaView>
     </TouchableWithoutFeedback>
   );
 }
 
-// Styles giữ nguyên 100%
+// ==================== UTIL ====================
+const formatTimeAgo = (date: Date): string => {
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return 'Vừa xong';
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} phút trước`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} giờ trước`;
+  if (diffInSeconds < 172800) return 'Hôm qua';
+  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} ngày trước`;
+  return 'Lâu lắm rồi';
+};
+
+// ==================== STYLES (merge of both) ====================
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   lightBg: { backgroundColor: '#F3F7FB' },
   darkBg: { backgroundColor: '#0b1220' },
+
   badge: {
     position: 'absolute',
     top: -8,
@@ -605,18 +747,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
   },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+
   header: { height: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, zIndex: 100 },
   headerLight: { backgroundColor: 'rgba(255,255,255,0.72)', borderBottomColor: '#e6e6e6', borderBottomWidth: 1 },
   headerDark: { backgroundColor: 'rgba(4,6,11,0.64)', borderBottomColor: 'rgba(255,255,255,0.06)', borderBottomWidth: 1 },
-  searchInput: { flex: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, fontSize: 14, borderWidth: 1, height: 42 },
-  inputLight: { backgroundColor: '#eef2f6', color: '#111', borderColor: '#eef2f6' },
-  inputDark: { backgroundColor: '#1e293b', color: '#e6eef8', borderColor: '#1e293b' },
 
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  iconCircle: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(200,200,200,0.2)' },
+  iconCircle: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(200,200,200,0.08)' },
 
   avatarBtn: { marginLeft: 6, borderRadius: 21, overflow: 'hidden', borderWidth: 2, borderColor: '#3b82f6' },
-  avatar: { width: 42, height: 42, borderRadius: 21 },
+  avatar: { width: 42, height: 42 },
+
+  // avatar menu
   avatarMenu: { position: 'absolute', top: 64, right: 14, width: 240, borderRadius: 12, paddingVertical: 8, zIndex: 200, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 18, elevation: 10 },
   menuLight: { backgroundColor: '#fff', borderColor: '#e6e6e6', borderWidth: 1 },
   menuDark: { backgroundColor: '#1e293b', borderColor: 'rgba(255,255,255,0.06)', borderWidth: 1 },
@@ -627,13 +769,14 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
   menuText: { fontSize: 15 },
 
+  // dropdowns
   messageDropdown: {
     position: 'absolute',
     top: 68,
-    right: 12,                     // thêm left để nó co giãn
-    maxWidth: 400,
+    right: 12,
+    maxWidth: 420,
     height: 480,
-    alignSelf: 'center',             // quan trọng: căn giữa nếu màn to
+    alignSelf: 'center',
     borderRadius: 16,
     zIndex: 1000,
     shadowColor: '#000',
@@ -645,6 +788,7 @@ const styles = StyleSheet.create({
   notificationDropdown: { position: 'absolute', top: 64, right: 60, width: 360, height: 450, borderRadius: 12, zIndex: 200, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, elevation: 10, overflow: 'hidden', paddingTop: 10 },
   dropdownTitle: { fontSize: 20, fontWeight: '800', paddingHorizontal: 15, marginBottom: 5 },
   dropdownScroll: { paddingHorizontal: 8 },
+
   seeAllButton: { paddingVertical: 10, backgroundColor: '#f0f2f5', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
   seeAllText: { color: '#1877f2', fontWeight: '600', fontSize: 15 },
 
@@ -656,39 +800,16 @@ const styles = StyleSheet.create({
   messagePreview: { fontSize: 13 },
   messageTime: { fontSize: 12, marginLeft: 10 },
 
-  notificationItem: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, marginVertical: 2, backgroundColor: 'rgba(24,119,242,0.1)' },
+  notificationItem: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, marginVertical: 2, backgroundColor: 'transparent' },
   notificationContent: { flex: 1, justifyContent: 'center' },
   notificationText: { fontSize: 14 },
 
   contentFullWidth: { padding: 16, paddingBottom: 60, flexGrow: 1 },
 
-  quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20, marginHorizontal: -4 },
-  actionBtnV2: {
-    width: '48%',              // luôn khoảng 2 cột
-    aspectRatio: 3.5,            // vuông, dễ xếp grid
-    borderRadius: 16,
-    padding: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
-  },
-  actionTextV2: { fontSize: 16, fontWeight: '800' },
+  quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20 },
+  actionBtn: { width: '48%', aspectRatio: 3.5, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
 
-  card: { borderRadius: 14, marginBottom: 16, overflow: 'hidden', padding: 16 },
-  cardLight: { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 },
-  cardDark: { backgroundColor: '#1e293b', borderColor: 'rgba(255,255,255,0.06)', borderWidth: 1 },
-
-  sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statColLeft: { flex: 1, alignItems: 'flex-start' },
-  statColCenter: { flex: 1, alignItems: 'center' },
-  statColRight: { flex: 1, alignItems: 'flex-end' },
-  statLabel: { fontSize: 13, color: '#6b7280', marginBottom: 4 },
-  statValue: { fontSize: 24, fontWeight: '800' },
+  card: { backgroundColor: '#1e293b', borderRadius: 16, padding: 16, marginBottom: 16 },
 
   txtDark: { color: '#111827' },
   txtLight: { color: '#f8fafc' },
@@ -698,17 +819,57 @@ const styles = StyleSheet.create({
   footer: { paddingVertical: 14, alignItems: 'center' },
   footerText: { fontSize: 12 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
   onlineDot: { position: 'absolute', bottom: 2, right: 2, width: 14, height: 14, backgroundColor: '#4ade80', borderRadius: 7, borderWidth: 3, borderColor: '#0b1220' },
   modalContent: { width: 300, borderRadius: 16, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 20 },
-  modalLight: { backgroundColor: '#fff' },
-  modalDark: { backgroundColor: '#1e293b' },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 8 },
-  modalMessage: { fontSize: 15, textAlign: 'center', marginBottom: 24, lineHeight: 22 },
-  modalButtons: { flexDirection: 'row', gap: 12, width: '100%' },
-  modalBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  modalBtnCancel: { backgroundColor: '#e5e7eb' },
-  modalBtnConfirm: { backgroundColor: '#e11d48' },
-  modalBtnTextCancel: { color: '#374151', fontWeight: '600', fontSize: 16 },
-  modalBtnTextConfirm: { color: '#fff', fontWeight: '600', fontSize: 16 },
+
+  // PROMO styles
+  promoOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 3000,
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  cardWrapper: {
+    width: '88%',
+    maxWidth: 520,
+    borderRadius: 16,
+    overflow: 'visible',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageBtn: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  promoImage: {
+    width: '100%',
+    height: undefined,
+    aspectRatio: 16 / 9,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  closeText: { fontSize: 16, fontWeight: '700' },
 });

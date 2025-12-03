@@ -57,7 +57,7 @@ export default function BooksList() {
       <Text style={styles.title}>Sách Song Ngữ Nhật - Việt</Text>
       <ScrollView style={styles.list}>
         {books.length === 0 ? (
-          <Text style={styles.emptyText}>Chưa có sách nào</Text>
+          <Text style={styles.emptyText}></Text>
         ) : (
           books.map(book => (
             <TouchableOpacity

@@ -31,12 +31,12 @@ const PANEL_WIDTH = CONTAINER_WIDTH / 2;
 const PANEL_HEIGHT = 420;
 
 const BG_IMAGE =
-    "https://images.unsplash.com/photo-1639580926953-1bbfdbc61591?q=80&w=1205&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+    "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExbjZqZnZkN3hoM21lODBjaWtmYnVnaWJ4dW15bHlldXRoaDd5eXM1YiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o6ZtkZeusjPpWaAoM/giphy.gif";
 
 const API_URL = Platform.select({
     web: "http://localhost:5000/api/auth",
-    ios: "http://10.249.2.233:5000/api/auth",
-    android: "http://10.249.2.233:5000/api/auth",
+    ios: "http://192.168.2.7:5000/api/auth",
+    android: "http://192.168.2.7:5000/api/auth",
 });
 
 const FB_APP_ID = "1501472567745202";
