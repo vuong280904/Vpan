@@ -1,6 +1,7 @@
-// app/(auth)/(shadow)/[topicId].tsx
 import axios from 'axios';
+import * as expoAv from 'expo-av';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -15,7 +16,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { getPronunciationUrl } from '../../utils/jishoApi';
 
+// --- Types
 interface Sentence {
   number: number;
   text: string;
@@ -27,35 +30,37 @@ interface TopicDetail {
   sentences: Sentence[];
 }
 
-const BASE_URL = 'http://10.249.2.233:5000';
-const LOCAL_FRAME_URI = require('../../../assets/images/bangthongbao.png');
-const FINISH_FRAME_URI = require('../../../assets/images/banghoanthanh.png');
+// --- Assets & config
+const BASE_URL = 'http://192.168.2.7:5000';
+const LOCAL_FRAME_URI = require('../../../assets/images/linhvat.png');
+const FINISH_FRAME_URI = require('../../../assets/images/nenlike.png');
 
+// --- Component
 const ShadowSentencesScreen: React.FC = () => {
   const { topicId } = useLocalSearchParams<{ topicId: string }>();
 
+  // data
   const [topic, setTopic] = useState<TopicDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Mobile recording
+  // mobile recording
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingUri, setRecordingUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [totalScore, setTotalScore] = useState(0);
   const [finished, setFinished] = useState(false);
 
-// Web MediaRecorder (use any to avoid TS issues)
-const mediaRecorderRef = useRef<any | null>(null);
-const audioChunksRef = useRef<Blob[]>([]);
-const streamRef = useRef<MediaStream | null>(null);
-const [isRecordingState, setIsRecordingState] = useState(false);
+  // web recording
+  const mediaRecorderRef = useRef<any | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [isRecordingState, setIsRecordingState] = useState(false);
 
-
-  // Playback
+  // playback
   const [playback, setPlayback] = useState<Audio.Sound | null>(null);
 
-  // Modal
+  // modals
   const [resultModalVisible, setResultModalVisible] = useState(false);
   const [finishModalVisible, setFinishModalVisible] = useState(false);
   const [resultData, setResultData] = useState({
@@ -66,36 +71,29 @@ const [isRecordingState, setIsRecordingState] = useState(false);
     isLast: false,
   });
 
+  // fetch topic
   useEffect(() => {
-    console.log('[Shadow] mount topicId=', topicId);
     if (topicId) fetchTopicDetail(String(topicId));
+
     return () => {
       (async () => {
         try {
-          console.log('[Shadow] cleanup: unloading playback');
           await playback?.unloadAsync();
         } catch (e) {
-          console.warn('[Shadow] cleanup: unload playback error', e);
+          // ignore
         }
-        try {
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach(t => {
-              console.log('[Shadow] cleanup: stopping track', t.kind, t);
-              t.stop();
-            });
-            streamRef.current = null;
-          }
-        } catch (e) {
-          console.warn('[Shadow] cleanup: stop tracks error', e);
+
+        if (streamRef.current) {
+          try {
+            streamRef.current.getTracks().forEach((t) => t.stop());
+          } catch (e) {}
+          streamRef.current = null;
         }
-        // stop and release recording if any
+
         if (recording) {
           try {
-            console.log('[Shadow] cleanup: stopping recording');
             await recording.stopAndUnloadAsync();
-          } catch (e) {
-            console.warn('[Shadow] cleanup: stop recording error', e);
-          }
+          } catch (e) {}
         }
       })();
     };
@@ -104,411 +102,413 @@ const [isRecordingState, setIsRecordingState] = useState(false);
 
   const fetchTopicDetail = async (id: string) => {
     try {
-      console.log('[Shadow] fetching topic', id);
       setLoading(true);
       const res = await axios.get(`${BASE_URL}/api/shadow/${id}`);
-      console.log('[Shadow] topic loaded, sentences=', res.data?.sentences?.length);
       setTopic(res.data);
     } catch (err) {
-      console.error('[Shadow] fetchTopicDetail error', err);
+      console.error(err);
       Alert.alert('Lỗi', 'Không tải được dữ liệu topic.');
     } finally {
       setLoading(false);
     }
   };
 
-  const currentSentence = topic?.sentences?.[currentIndex] ?? null;
-  const totalSentences = topic?.sentences.length ?? 0;
+  const playPronunciation = async (text: string) => {
+    if (!text) return;
+    try {
+      const url = await getPronunciationUrl(text);
+      if (!url) return;
+  
+      console.log('playPronunciation url=', url);
+  
+      if (Platform.OS === 'web') {
+        const audio = new (window as any).Audio(url);
+        audio.play().catch((e: any) => console.warn('Web audio play failed', e));
+        return;
+      }
+  
+      let finalUrl = url;
+      if (!/^https?:\/\//i.test(finalUrl) && !finalUrl.startsWith('file://')) {
+        finalUrl = encodeURI(finalUrl);
+      }
+  
+      // quick GET check
+      let ok = false;
+      try {
+        const resp = await fetch(finalUrl, { method: 'GET', cache: 'no-store' });
+        ok = resp.ok;
+        if (!ok) console.warn('playPronunciation: GET returned', resp.status);
+      } catch (e) {
+        console.warn('playPronunciation: health check failed', e);
+      }
+  
+      // nếu GET không ok -> download rồi play local
+      if (!ok) {
+        try {
+          const dest = `${(FileSystem as any).cacheDirectory}tts_${encodeURIComponent(text)}.mp3`;
+          const dl = await FileSystem.downloadAsync(finalUrl, dest);
+          const info = await FileSystem.getInfoAsync(dl.uri);
+          if (!info.exists) throw new Error('Downloaded file not exists');
+  
+          // create and play (local)
+          const { sound } = await expoAv.Audio.Sound.createAsync({ uri: dl.uri }, { shouldPlay: true });
+          sound.setOnPlaybackStatusUpdate((status) => {
+            if (status.isLoaded && status.didJustFinish) {
+              sound.unloadAsync().catch(() => {});
+            }
+          });
+          return;
+        } catch (e) {
+          console.warn('playPronunciation: download+play failed', e);
+          return;
+        }
+      }
+  
+      // play remote directly
+      const { sound } = await expoAv.Audio.Sound.createAsync({ uri: finalUrl }, { shouldPlay: true });
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+        }
+      });
+    } catch (err) {
+      console.error('Lỗi phát âm:', err);
+    }
+  };
+  
 
-  // ==================== GHI ÂM MOBILE ====================
+  const currentSentence = topic?.sentences?.[currentIndex] ?? null;
+  const totalSentences = topic?.sentences?.length ?? 0;
+
+  // ---------------- Mobile recording ----------------
   const startRecordingMobile = async () => {
     try {
-      console.log('[Shadow] startRecordingMobile: requesting permission');
       const { status } = await Audio.requestPermissionsAsync();
-      console.log('[Shadow] permission status', status);
       if (status !== 'granted') {
         Alert.alert('Cần quyền micro');
         return;
       }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      console.log('[Shadow] creating recording (mobile)');
       const recResult = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      console.log('[Shadow] created recording object', recResult);
       setRecording(recResult.recording);
       setRecordingUri(null);
     } catch (err) {
-      console.error('[Shadow] startRecordingMobile error', err);
+      console.error(err);
       Alert.alert('Lỗi', 'Không thể ghi âm');
     }
   };
 
   const stopRecordingMobile = async () => {
-    if (!recording) {
-      console.warn('[Shadow] stopRecordingMobile called but recording is null');
-      return;
-    }
-    console.log('[Shadow] stopRecordingMobile: stopping...');
+    if (!recording) return;
     try {
       await recording.stopAndUnloadAsync();
-      console.log('[Shadow] stopRecordingMobile: stopped and unloaded');
-    } catch (e) {
-      console.warn('[Shadow] stopRecordingMobile: stopAndUnloadAsync failed', e);
-    }
+    } catch (e) {}
     try {
       const uri = recording.getURI();
-      console.log('[Shadow] stopRecordingMobile: getURI ->', uri);
       setRecordingUri(uri ?? null);
     } catch (e) {
-      console.warn('[Shadow] stopRecordingMobile: getURI error', e);
       setRecordingUri(null);
     } finally {
       setRecording(null);
     }
   };
 
-  // ==================== GHI ÂM WEB ====================
-const startRecordingWeb = async () => {
-  try {
-    console.log('[Shadow] startRecordingWeb: requesting getUserMedia');
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    console.log('[Shadow] startRecordingWeb: got stream', stream);
-    streamRef.current = stream;
-
-    const MediaRecorderClass = (window as any).MediaRecorder;
-    if (!MediaRecorderClass) {
-      Alert.alert('Trình duyệt không hỗ trợ MediaRecorder');
-      console.error('[Shadow] MediaRecorder not available on window');
-      return;
-    }
-
-    const mediaRecorder = new MediaRecorderClass(stream);
-    audioChunksRef.current = [];
-
-    mediaRecorder.onstart = () => {
-      console.log('[Shadow][Web] mediaRecorder onstart state=', mediaRecorder.state);
-      setIsRecordingState(true);
-    };
-    mediaRecorder.ondataavailable = (e: any) => {
-      console.log('[Shadow][Web] ondataavailable size=', e?.data?.size);
-      if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
-    };
-
-    mediaRecorder.onerror = (err: any) => {
-      console.error('[Shadow][Web] mediaRecorder error', err);
-    };
-
-    mediaRecorder.onstop = () => {
-      console.log('[Shadow][Web] mediaRecorder onstop, chunks=', audioChunksRef.current.length);
-      try {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-        const url = URL.createObjectURL(blob);
-        console.log('[Shadow][Web] created blob url=', url);
-        setRecordingUri(url);
-      } catch (e) {
-        console.error('[Shadow][Web] onstop create blob error', e);
-        setRecordingUri(null);
-      } finally {
-        audioChunksRef.current = [];
-        mediaRecorderRef.current = null;
-        setIsRecordingState(false); // ← đảm bảo tắt state khi onstop xong
-      }
-    };
-
-    console.log('[Shadow][Web] starting mediaRecorder');
-    mediaRecorder.start();
-    mediaRecorderRef.current = mediaRecorder;
-    console.log('[Shadow][Web] mediaRecorder state after start=', mediaRecorder.state);
-    setRecordingUri(null);
-    // setIsRecordingState(true); // onstart handler cũng set, nhưng có thể set ở đây để chắc chắn
-    setIsRecordingState(true);
-  } catch (err) {
-    console.error('[Shadow] startRecordingWeb error', err);
-    Alert.alert('Lỗi micro', 'Trình duyệt không cho phép ghi âm');
-  }
-};
-
-
-const stopRecordingWeb = () => {
-  const recorder = mediaRecorderRef.current;
-  console.log('[Shadow][Web] stopRecordingWeb called. recorder=', !!recorder, 'state=', recorder?.state);
-  if (recorder && recorder.state !== 'inactive') {
+  // ---------------- Web recording ----------------
+  const startRecordingWeb = async () => {
     try {
-      recorder.stop();
-      console.log('[Shadow][Web] stop invoked on recorder');
-    } catch (e) {
-      console.error('[Shadow][Web] stopRecordingWeb error', e);
-    }
-    // safety fallback in case onstop never fires:
-    setTimeout(() => {
-      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
-        setIsRecordingState(false);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const MediaRecorderClass = (window as any).MediaRecorder;
+      if (!MediaRecorderClass) {
+        Alert.alert('Trình duyệt không hỗ trợ ghi âm');
+        return;
       }
-    }, 800);
-  } else {
-    console.warn('[Shadow][Web] stopRecordingWeb: no active recorder or already inactive');
-    setIsRecordingState(false);
-  }
-};
+      const mr = new MediaRecorderClass(stream);
+      audioChunksRef.current = [];
 
+      mr.onstart = () => setIsRecordingState(true);
+      mr.ondataavailable = (e: any) => e.data && e.data.size > 0 && audioChunksRef.current.push(e.data);
+      mr.onerror = (err: any) => console.error('MediaRecorder error', err);
+      mr.onstop = () => {
+        try {
+          const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          setRecordingUri(url);
+        } catch (e) {
+          setRecordingUri(null);
+        } finally {
+          audioChunksRef.current = [];
+          mediaRecorderRef.current = null;
+          setIsRecordingState(false);
+        }
+      };
 
-  // ==================== UNIFIED API ====================
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecordingUri(null);
+      setIsRecordingState(true);
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Lỗi micro', 'Trình duyệt không cho phép ghi âm');
+    }
+  };
+
+  const stopRecordingWeb = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop();
+      } catch (e) {
+        console.error(e);
+      }
+      setTimeout(() => {
+        if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') setIsRecordingState(false);
+      }, 600);
+    } else {
+      setIsRecordingState(false);
+    }
+  };
+
   const startRecording = () => {
-    console.log('[Shadow] startRecording pressed. Platform=', Platform.OS);
     if (Platform.OS === 'web') startRecordingWeb();
     else startRecordingMobile();
   };
-
   const stopRecording = () => {
-    console.log('[Shadow] stopRecording pressed. Platform=', Platform.OS);
     if (Platform.OS === 'web') stopRecordingWeb();
     else stopRecordingMobile();
   };
 
-  // Sửa lại isRecording cho rõ ràng
-const isRecording = Platform.OS === 'web' ? isRecordingState : !!recording;
+  const isRecording = Platform.OS === 'web' ? isRecordingState : !!recording;
 
-
-  // DEBUG: log isRecording changes
-  useEffect(() => {
-    console.log('[Shadow] isRecording=', isRecording, 'mediaRecorderState=', mediaRecorderRef.current?.state, 'recording=', !!recording);
-  }, [isRecording, recording, mediaRecorderRef.current]);
-
-  // ==================== NGHE LẠI ====================
+  // playback
   const playRecording = async () => {
-    if (!recordingUri) {
-      console.warn('[Shadow] playRecording: no recordingUri');
-      return;
-    }
-    console.log('[Shadow] playRecording uri=', recordingUri);
+    if (!recordingUri) return;
     try {
       await playback?.unloadAsync();
       const { sound } = await Audio.Sound.createAsync({ uri: recordingUri }, { shouldPlay: true });
       setPlayback(sound);
     } catch (err) {
-      console.error('[Shadow] playRecording error', err);
+      console.error(err);
       Alert.alert('Lỗi phát');
     }
   };
 
-  // ==================== GỬI ĐIỂM ====================
-const submitAndNext = async () => {
-  console.log('[Shadow] submitAndNext called', { currentIndex, recordingUri });
+  // submit & next
+  const submitAndNext = async () => {
+    if (!currentSentence || !recordingUri) return;
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      if (Platform.OS === 'web') {
+        const resp = await fetch(recordingUri);
+        const blob = await resp.blob();
+        formData.append('audio', blob, 'shadow.wav');
+      } else {
+        formData.append('audio', { uri: recordingUri, name: 'shadow.wav', type: 'audio/wav' } as any);
+      }
+      formData.append('text', currentSentence.text);
 
-  if (!currentSentence || !recordingUri) return;
+      const res = await axios.post(`${BASE_URL}/api/shadow/predict`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
+      });
 
-  setIsSubmitting(true);
+      const { score, errors } = res.data;
+      const newTotal = totalScore + score;
+      setTotalScore(newTotal);
 
-  try {
-    const formData = new FormData();
-    if (Platform.OS === 'web') {
-      const resp = await fetch(recordingUri);
-      const blob = await resp.blob();
-      formData.append('audio', blob, 'shadow.wav');
-    } else {
-      formData.append('audio', { uri: recordingUri, name: 'shadow.wav', type: 'audio/wav' } as any);
+      setResultData({
+        score,
+        errors,
+        sentenceNumber: currentSentence.number,
+        totalAfter: newTotal,
+        isLast: currentIndex === totalSentences - 1,
+      });
+
+      setResultModalVisible(true);
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Lỗi', 'Không thể chấm điểm');
+    } finally {
+      setIsSubmitting(false);
     }
-    formData.append('text', currentSentence.text);
-
-    const res = await axios.post(`${BASE_URL}/api/shadow/predict`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
-    });
-
-    const { score, errors } = res.data;
-
-    // 1️⃣ cập nhật tổng điểm
-    const newTotal = totalScore + score;
-    setTotalScore(newTotal);
-
-    // 2️⃣ cập nhật modal dữ liệu
-    setResultData({
-      score,
-      errors,
-      sentenceNumber: currentSentence.number,
-      totalAfter: newTotal,
-      isLast: currentIndex === totalSentences - 1,
-    });
-
-    // 3️⃣ hiển thị modal
-    setResultModalVisible(true);
-
-  } catch (err: any) {
-    console.error('[Shadow] submitAndNext error', err);
-    Alert.alert('Lỗi', 'Không thể chấm điểm');
-  } finally {
-    setIsSubmitting(false);
-  }
-};
-
+  };
 
   const onResultOk = () => {
-    console.log('[Shadow] onResultOk: isLast=', resultData.isLast);
     setResultModalVisible(false);
     if (resultData.isLast) {
       setFinished(true);
       setFinishModalVisible(true);
     } else {
-      setCurrentIndex(i => i + 1);
+      setCurrentIndex((i) => i + 1);
+      // reset recording state for the next sentence
+      setRecordingUri(null);
     }
   };
 
-  // ==================== RENDER ====================
+  // ---------------- Render ----------------
   if (loading || !topic || !currentSentence) {
     return (
       <SafeAreaView style={styles.full}>
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#60a5fa" />
-          <Text style={{ color: '#fff', marginTop: 12 }}>Đang tải...</Text>
+          <Text style={styles.loadingText}>Đang tải...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const progressPercent = totalSentences ? Math.round(((currentIndex + 1) / totalSentences) * 100) : 0;
+
   return (
     <SafeAreaView style={styles.full}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>{topic.title}</Text>
+        <Text style={styles.headerSubtitle}>{topic.description}</Text>
+      </View>
+
       <View style={styles.container}>
-        <Text style={styles.topicTitle}>{topic.title}</Text>
-        <Text style={styles.topicDesc}>{topic.description}</Text>
-        <Text style={styles.progress}>Câu {currentIndex + 1} / {totalSentences}</Text>
+        <View style={styles.progressRow}>
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+          </View>
+          <Text style={styles.progressLabel}>Câu {currentIndex + 1} / {totalSentences} · {progressPercent}%</Text>
+        </View>
 
-        <View style={styles.sentenceBox}>
-          <Text style={styles.sentenceNumber}>#{currentSentence.number}</Text>
+        <View style={styles.card}>
+          <View style={styles.sentenceHeader}>
+            <Text style={styles.sentenceNumber}>#{currentSentence.number}</Text>
+            <Text style={styles.sentenceLength}>{currentSentence.text.length} ký tự</Text>
+          </View>
+
           <Text style={styles.sentenceText}>{currentSentence.text}</Text>
-        </View>
 
-        {/* NÚT GHI ÂM */}
-        <View style={styles.recordRow}>
-          {!isRecording ? (
-            <TouchableOpacity
-              style={[styles.btn, styles.btnPrimary]}
-              onPress={startRecording}
-              disabled={isSubmitting || finished}
-            >
-              <Text style={styles.btnText}>Bắt đầu ghi âm</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.btn, styles.btnDanger]}
-              onPress={stopRecording}
-            >
-              <Text style={styles.btnText}>Dừng ghi âm</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+          {/* waveform placeholder */}
+          <View style={styles.waveformPlaceholder}>
+            <Text style={styles.waveformText} onPress={() => playPronunciation(currentSentence.text)}>🔊 Waveform</Text>
+          </View>
 
-        {/* NÚT NGHE LẠI */}
-        {recordingUri && !isRecording && (
-          <TouchableOpacity style={[styles.btn, styles.btnPlay]} onPress={playRecording}>
-            <Text style={styles.btnText}>Nghe lại bản ghi</Text>
-          </TouchableOpacity>
-        )}
+          <View style={styles.actionsRow}>
+            {!isRecording ? (
+              <TouchableOpacity onPress={startRecording} style={[styles.bigBtn, styles.btnRecord]} disabled={isSubmitting || finished}>
+                <Text style={styles.bigBtnText}>⏺️ Ghi âm</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={stopRecording} style={[styles.bigBtn, styles.btnStop]}>
+                <Text style={styles.bigBtnText}>⏹️ Dừng</Text>
+              </TouchableOpacity>
+            )}
 
-        <Text style={styles.recordStatus}>
-          {isRecording
-            ? 'Đang ghi âm... (nhấn Dừng để hoàn tất)'
-            : recordingUri
-              ? 'Đã ghi xong – có thể nghe lại & chấm điểm'
-              : 'Nhấn nút xanh để bắt đầu'}
-        </Text>
+            <View style={styles.rightColumn}>
+              <TouchableOpacity onPress={playRecording} disabled={!recordingUri || isRecording} style={[styles.smallBtn, !recordingUri && styles.disabled]}>
+                <Text style={styles.smallBtnText}>▶️ Nghe</Text>
+              </TouchableOpacity>
 
-        {/* NÚT CHẤM ĐIỂM */}
-        <TouchableOpacity
-          style={[
-            styles.btn,
-            styles.btnSecondary,
-            (!recordingUri || isSubmitting || finished) && styles.btnDisabled,
-          ]}
-          onPress={submitAndNext}
-          disabled={!recordingUri || isSubmitting || finished}
-        >
-          <Text style={styles.btnText}>
-            {currentIndex === totalSentences - 1 ? 'Chấm điểm & hoàn thành' : 'Chấm điểm & sang câu tiếp'}
+              <TouchableOpacity onPress={submitAndNext} disabled={!recordingUri || isSubmitting || finished} style={[styles.smallBtn, styles.btnSubmit, (!recordingUri || isSubmitting || finished) && styles.disabled]}>
+                <Text style={styles.smallBtnText}>{currentIndex === totalSentences - 1 ? 'Hoàn thành' : 'Chấm & tiếp'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <Text style={styles.statusText}>
+            {isRecording ? 'Đang ghi âm... Nhấn Dừng khi hoàn tất.' : recordingUri ? 'Bản ghi sẵn sàng — có thể nghe hoặc chấm điểm.' : 'Nhấn Ghi âm để bắt đầu.'}
           </Text>
-        </TouchableOpacity>
+
+        </View>
 
         <View style={styles.totalBox}>
-          <Text style={styles.totalText}>Tổng điểm: {totalScore.toFixed(1)}</Text>
+          <Text style={styles.totalLabel}>Tổng điểm</Text>
+          <Text style={styles.totalValue}>{totalScore.toFixed(1)}</Text>
         </View>
-
-        {/* === Kết quả Modal === */}
-        <Modal animationType="fade" transparent visible={resultModalVisible}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalWrapper}>
-              <Image source={LOCAL_FRAME_URI} style={styles.resultFrame} resizeMode="contain" />
-              <View style={styles.resultContent}>
-                <Text style={styles.modalTitle}>Câu {resultData.sentenceNumber}</Text>
-                <Text style={styles.modalScore}>Điểm: {resultData.score.toFixed(1)}</Text>
-                <Text style={styles.modalErrors}>
-                  {resultData.errors.length > 0 ? 'Lỗi: ' + resultData.errors.join(', ') : 'Hoàn hảo!'}
-                </Text>
-                <TouchableOpacity style={styles.modalBtn} onPress={onResultOk}>
-                  <Text style={styles.modalBtnText}>OK</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* === Hoàn thành Modal === */}
-        <Modal animationType="fade" transparent visible={finishModalVisible}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalWrapper}>
-              <Image source={FINISH_FRAME_URI} style={styles.finishFrame} resizeMode="contain" />
-              <View style={styles.finishContent}>
-                <Text style={styles.finishTitle}>Hoàn thành!</Text>
-                <Text style={styles.finishText}>Bạn đã hoàn thành {totalSentences} câu</Text>
-                <Text style={styles.finishScore}>Tổng điểm: {totalScore.toFixed(1)}</Text>
-                <TouchableOpacity style={styles.finishBtn} onPress={() => setFinishModalVisible(false)}>
-                  <Text style={styles.finishBtnText}>Đóng</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </View>
+
+      {/* Result Modal */}
+      <Modal animationType="fade" transparent visible={resultModalVisible}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Image source={LOCAL_FRAME_URI} style={styles.modalDecor} resizeMode="contain" />
+            <Text style={styles.modalTitle}>Câu {resultData.sentenceNumber}</Text>
+            <Text style={styles.modalScore}>Điểm: {resultData.score.toFixed(1)}</Text>
+            <Text style={styles.modalErrors}>{resultData.errors.length ? 'Lỗi: ' + resultData.errors.join(', ') : 'Hoàn hảo!'}</Text>
+            <TouchableOpacity style={styles.modalOk} onPress={onResultOk}>
+              <Text style={styles.modalOkText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Finish Modal */}
+      <Modal animationType="fade" transparent visible={finishModalVisible}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Image source={FINISH_FRAME_URI} style={styles.modalDecor} resizeMode="contain" />
+            <Text style={styles.modalTitle}>Hoàn thành 🎉</Text>
+            <Text style={styles.modalSubtitle}>Bạn đã hoàn thành {totalSentences} câu</Text>
+            <Text style={styles.modalScore}>Tổng điểm: {totalScore.toFixed(1)}</Text>
+            <TouchableOpacity style={[styles.modalOk, styles.modalClose]} onPress={() => setFinishModalVisible(false)}>
+              <Text style={styles.modalOkText}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 };
 
+// --- Styles (clean, accessible)
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: '#0b1220' },
+  header: { paddingTop: 18, paddingHorizontal: 18, paddingBottom: 10 },
+  headerTitle: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  headerSubtitle: { color: '#94a3b8', marginTop: 6, fontSize: 13 },
+
   container: { flex: 1, padding: 16 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  topicTitle: { fontSize: 22, fontWeight: '700', color: '#f9fafb' },
-  topicDesc: { fontSize: 14, color: '#9ca3af', marginTop: 4, marginBottom: 12 },
-  progress: { fontSize: 15, color: '#e5e7eb', marginBottom: 10, fontWeight: '600' },
-  sentenceBox: { backgroundColor: '#111827', borderRadius: 12, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: '#1f2937' },
-  sentenceNumber: { color: '#9ca3af', marginBottom: 6 },
-  sentenceText: { fontSize: 21, color: '#f9fafb', fontWeight: '600' },
-  recordRow: { alignItems: 'center', marginVertical: 12 },
-  btn: { paddingVertical: 16, paddingHorizontal: 32, borderRadius: 999, minWidth: 240, alignItems: 'center' },
-  btnPrimary: { backgroundColor: '#22c55e' },
-  btnDanger: { backgroundColor: '#ef4444' },
-  btnPlay: { backgroundColor: '#8b5cf6', marginTop: 12 },
-  btnSecondary: { backgroundColor: '#3b82f6', marginTop: 16 },
-  btnDisabled: { opacity: 0.5 },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 17 },
-  recordStatus: { textAlign: 'center', color: '#94a3b8', marginVertical: 12, fontSize: 15 },
-  totalBox: { marginTop: 24, padding: 16, backgroundColor: '#111827', borderRadius: 12, borderWidth: 1, borderColor: '#1f2937' },
-  totalText: { color: '#60a5fa', fontSize: 19, fontWeight: '800', textAlign: 'center' },
+  loadingText: { color: '#9ca3af', marginTop: 12 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
-  modalWrapper: { width: '88%', alignItems: 'center' },
-  resultFrame: { width: 210 , aspectRatio: 1.6, position: 'absolute', top: 0 },
-  resultContent: { width: '74%', marginTop: 92, alignItems: 'center' },
-  modalTitle: { color: '#000', fontSize: 23, fontWeight: '800', marginBottom: 10 },
-  modalScore: { color: '#b45309', fontSize: 28, fontWeight: '900', marginBottom: 10 },
-  modalErrors: { color: '#000', fontSize: 16, textAlign: 'center', marginBottom: 24 },
-  modalBtn: { backgroundColor: '#ef4444', paddingHorizontal: 36, paddingVertical: 14, borderRadius: 14 },
-  modalBtnText: { color: '#fff', fontWeight: '700', fontSize: 17 },
+  progressRow: { marginBottom: 12 },
+  progressBarBg: { height: 10, backgroundColor: '#111827', borderRadius: 999, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#3b82f6' },
+  progressLabel: { marginTop: 8, color: '#cbd5e1', fontSize: 13, fontWeight: '600' },
 
-  finishFrame: { width: '260%', aspectRatio: 1.6, position: 'absolute', top: -80 },
-  finishContent: { width: '74%', marginTop: 130, alignItems: 'center' },
-  finishTitle: { color: '#000', fontSize: 30, fontWeight: '900', marginBottom: 12 },
-  finishText: { color: '#000', fontSize: 19, marginBottom: 8 },
-  finishScore: { color: '#b45309', fontSize: 26, fontWeight: '900', marginBottom: 24 },
-  finishBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 40, paddingVertical: 16, borderRadius: 14 },
-  finishBtnText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  card: { backgroundColor: '#0f1724', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#1f2a3a', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6 },
+  sentenceHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  sentenceNumber: { color: '#93c5fd', fontWeight: '700' },
+  sentenceLength: { color: '#64748b', fontSize: 12 },
+
+  sentenceText: { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 30, marginBottom: 12 },
+  waveformPlaceholder: { height: 56, borderRadius: 8, borderWidth: 1, borderColor: '#1f2937', justifyContent: 'center', alignItems: 'center', marginBottom: 12, backgroundColor: '#071023' },
+  waveformText: { color: '#94a3b8' },
+
+  actionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  bigBtn: { paddingVertical: 14, paddingHorizontal: 18, borderRadius: 12, minWidth: 160, alignItems: 'center' },
+  btnRecord: { backgroundColor: '#ef4444' },
+  btnStop: { backgroundColor: '#f97316' },
+  bigBtnText: { color: '#fff', fontWeight: '800' },
+
+  rightColumn: { alignItems: 'flex-end' },
+  smallBtn: { marginBottom: 8, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#111827' },
+  btnSubmit: { backgroundColor: '#10b981' },
+  smallBtnText: { color: '#fff', fontWeight: '700' },
+  disabled: { opacity: 0.45 },
+
+  statusText: { marginTop: 12, color: '#9aa4b2', fontSize: 13, textAlign: 'center' },
+
+  totalBox: { marginTop: 18, alignItems: 'center' },
+  totalLabel: { color: '#94a3b8', fontSize: 13 },
+  totalValue: { color: '#60a5fa', fontSize: 24, fontWeight: '900', marginTop: 6 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.7)', justifyContent: 'center', alignItems: 'center', padding: 18 },
+  modalCard: { width: '90%', maxWidth: 520, backgroundColor: '#fff', borderRadius: 12, padding: 22, alignItems: 'center', position: 'relative' },
+  modalDecor: { width: 600, height: 240, position: 'absolute', top: -120 },
+  modalTitle: { fontSize: 20, fontWeight: '900', marginTop: 40, color: '#0b1220' },
+  modalSubtitle: { color: '#475569', marginTop: 6 },
+  modalScore: { fontSize: 26, fontWeight: '900', color: '#b45309', marginTop: 10 },
+  modalErrors: { marginTop: 10, color: '#334155', textAlign: 'center' },
+  modalOk: { marginTop: 18, backgroundColor: '#3b82f6', paddingVertical: 12, paddingHorizontal: 36, borderRadius: 10 },
+  modalClose: { backgroundColor: '#10b981' },
+  modalOkText: { color: '#fff', fontWeight: '800' },
 });
 
 export default ShadowSentencesScreen;

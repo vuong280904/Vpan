@@ -19,7 +19,7 @@ import {
   View,
 } from 'react-native';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'http://192.168.2.7:5000/api';
 
 let getItemAsync: (key: string) => Promise<string | null>;
 

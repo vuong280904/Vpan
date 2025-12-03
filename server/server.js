@@ -13,10 +13,15 @@ const http = require('http');
 const app = express();
 dotenv.config();
 
-app.use(cors({
-  origin: "*",
-  credentials: true
-}));
+// app.use(cors({
+//   origin: "*",
+//   credentials: true
+// }));
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  next();
+});
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -63,25 +68,127 @@ app.get('/api/health', (req, res) => {
 // ======================
 // TTS proxy
 // ======================
+// app.get('/api/jishoApi/audio', async (req, res) => {
+//   const text = req.query.text;
+//   if (!text || !String(text).trim()) return res.status(400).json({ error: 'Thiếu text để phát âm' });
+
+//   const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ja&client=tw-ob`;
+//   const fetch = global.fetch || require('node-fetch');
+
+//   try {
+//     const response = await fetch(ttsUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+//     if (!response.ok) return res.status(502).json({ error: 'Không thể lấy audio từ TTS' });
+
+//     res.set('Content-Type', 'audio/mpeg');
+//     res.set('Access-Control-Allow-Origin', '*');
+//     response.body.pipe(res);
+//   } catch (err) {
+//     console.error('Lỗi khi proxy TTS:', err);
+//     res.status(500).json({ error: 'Lỗi server khi lấy audio' });
+//   }
+// });
+
+// ======================
+// Robust TTS proxy (replace previous /api/jishoApi/audio)
+// ======================
+const axiosLib = require('axios');
+let googleTTSpkg = null;
+try {
+  googleTTSpkg = require('google-tts-api'); // optional, may help generate better URL
+} catch (e) {
+  // not installed, we'll build URL manually
+}
+
 app.get('/api/jishoApi/audio', async (req, res) => {
   const text = req.query.text;
-  if (!text || !String(text).trim()) return res.status(400).json({ error: 'Thiếu text để phát âm' });
+  if (!text || !String(text).trim()) {
+    return res.status(400).json({ error: 'Thiếu text để phát âm' });
+  }
 
-  const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ja&client=tw-ob`;
-  const fetch = global.fetch || require('node-fetch');
+  // Build upstream TTS URL (try google-tts-api if available for better compatibility)
+  let ttsUrl;
+  try {
+    if (googleTTSpkg) {
+      ttsUrl = googleTTSpkg.getAudioUrl(String(text), {
+        lang: 'ja',
+        slow: false,
+        host: 'https://translate.google.com',
+      });
+    } else {
+      ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(String(text))}&tl=ja&client=tw-ob`;
+    }
+  } catch (e) {
+    console.error('[TTS proxy] build ttsUrl failed:', e);
+    return res.status(500).json({ error: 'Không thể tạo URL TTS' });
+  }
 
   try {
-    const response = await fetch(ttsUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!response.ok) return res.status(502).json({ error: 'Không thể lấy audio từ TTS' });
+    const upstream = await axiosLib.get(ttsUrl, {
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        Accept: '*/*'
+      },
+      timeout: 15000,
+      validateStatus: null,
+    });
 
-    res.set('Content-Type', 'audio/mpeg');
-    res.set('Access-Control-Allow-Origin', '*');
-    response.body.pipe(res);
+    if (upstream.status !== 200) {
+      // read small preview from upstream (if possible) for debugging
+      let bodyPreview = '';
+      try {
+        const stream = upstream.data;
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+          const len = chunks.reduce((s, c) => s + (c.length || c.byteLength || 0), 0);
+          if (len > 4096) break;
+        }
+        bodyPreview = Buffer.concat(chunks).toString('utf8', 0, 1024);
+      } catch (e) {
+        bodyPreview = `<unable to read upstream body: ${e.message}>`;
+      }
+
+      console.error(`[TTS proxy] Upstream returned ${upstream.status} for text="${text}". preview:`, bodyPreview.slice(0,1000));
+      return res.status(502).json({ error: 'Không thể lấy audio từ TTS', upstreamStatus: upstream.status });
+    }
+
+    // success: pipe audio stream to client
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (upstream.headers['content-length']) res.setHeader('Content-Length', upstream.headers['content-length']);
+
+    upstream.data.pipe(res);
+
+    upstream.data.on('error', (err) => {
+      console.error('[TTS proxy] Stream error while piping upstream:', err);
+      try { res.destroy(err); } catch (e) {}
+    });
   } catch (err) {
-    console.error('Lỗi khi proxy TTS:', err);
-    res.status(500).json({ error: 'Lỗi server khi lấy audio' });
+    console.error('[TTS proxy] Unexpected error when fetching TTS:', err && err.message ? err.message : err);
+    if (err.response) {
+      try {
+        const preview = await streamToString(err.response.data, 2000).catch(() => '<no body>');
+        console.error('[TTS proxy] err.response.preview:', preview.slice(0,1000));
+      } catch (e) {}
+    }
+    return res.status(500).json({ error: 'Lỗi server khi lấy audio', detail: err.message });
   }
 });
+
+// helper to read small portion of stream (for debugging)
+async function streamToString(stream, maxBytes = 2048) {
+  if (!stream) return '';
+  const chunks = [];
+  let read = 0;
+  for await (const chunk of stream) {
+    chunks.push(Buffer.from(chunk));
+    read += chunk.length || chunk.byteLength || 0;
+    if (read >= maxBytes) break;
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 
 // ======================
 // Spawn Python FastAPI server

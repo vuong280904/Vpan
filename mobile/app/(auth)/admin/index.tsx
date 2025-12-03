@@ -17,15 +17,18 @@ import {
   View
 } from "react-native";
 
-// Component tái sử dụng (giả sử bạn đã tách ra folder components)
+// Component tái sử dụng (giữ nguyên import như bạn có)
 import AdminTable from "@/components/AdminTable";
 import DashboardCharts from "@/components/DashBoardCharts";
 import { ConfirmModal, MessageModal } from "@/components/Modals";
 import StatsRow from "@/components/StatsRow";
 
+// Nếu bạn muốn tách Slider ra file khác, import thay vì định nghĩa bên dưới
+// import Slider from "@/components/Slider";
+
 const { width } = Dimensions.get("window");
 const SIDEBAR_WIDTH = 280;
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://10.249.2.233:5000/api";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:5000/api";
 
 // ==================== INTERFACES ====================
 interface Book {
@@ -86,6 +89,55 @@ const menuItems = [
   { key: "shadowing", label: "Shadowing", icon: "microphone" },
 ];
 
+// ==================== SLIDER (embedded) ====================
+// Nếu muốn dùng file riêng, replace this Slider with an import
+import Carousel from 'react-native-reanimated-carousel';
+const slides = [
+  { id: 1, image: require('../../../assets/images/quangcao4.png') },
+  { id: 2, image: require('../../../assets/images/quangcao5.png') },
+  { id: 3, image: require('../../../assets/images/quangcao3.png') },
+];
+
+function SliderInline({ slides }: { slides: { id: number; image: any }[] }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  return (
+    <View style={sliderStyles.carouselContainer}>
+      <Carousel
+        loop
+        width={width}
+        height={180}
+        autoPlay
+        autoPlayInterval={3000}
+        data={slides}
+        scrollAnimationDuration={1000}
+        onSnapToItem={(index) => setCurrentIndex(index)}
+        renderItem={({ item }) => (
+          <View style={sliderStyles.slide}>
+            <Image source={item.image} style={sliderStyles.slideImage} resizeMode="cover" />
+          </View>
+        )}
+      />
+      <View style={sliderStyles.dotsContainer}>
+        {slides.map((_, index) => (
+          <View
+            key={index}
+            style={[sliderStyles.dot, { opacity: currentIndex === index ? 1 : 0.3 }]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const sliderStyles = StyleSheet.create({
+  carouselContainer: { alignItems: 'center', marginBottom: 15 },
+  slide: { borderRadius: 12, overflow: 'hidden', alignItems: 'center' },
+  slideImage: { width: width * 0.9, height: 180, borderRadius: 12 },
+  dotsContainer: { flexDirection: 'row', justifyContent: 'center', marginTop: 8, gap: 6 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#333' },
+});
+
+// ==================== MAIN COMPONENT ====================
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [search, setSearch] = useState("");
@@ -129,9 +181,9 @@ export default function AdminDashboard() {
     confirmText?: string;
   }>({ visible: false });
 
-  const [messageModal, setMessageModal] = useState<{ visible: boolean; title?: string; message?: string }>({
-    visible: false,
-  });
+  const [messageModal, setMessageModal] = useState<{ visible: boolean; title?: string; message?: string }>(
+    { visible: false }
+  );
 
   // ==================== FETCH DATA ====================
   const fetchStats = async () => {
@@ -411,7 +463,7 @@ export default function AdminDashboard() {
         body: JSON.stringify({ title: newNotifTitle, message: newNotifMessage }),
       });
       if (res.ok) {
-        setMessageModal({ visible:true, title: "Thành công", message: "Đã gửi thông báo!" });
+        setMessageModal({ visible: true, title: "Thành công", message: "Đã gửi thông báo!" });
         setNewNotifTitle(""); setNewNotifMessage("");
         setNotifModal(false);
         fetchNotifications();
@@ -440,6 +492,9 @@ export default function AdminDashboard() {
     if (activeTab === "dashboard" && stats) {
       return (
         <ScrollView>
+          {/* Slider banner trên dashboard */}
+          <SliderInline slides={slides} />
+
           <StatsRow stats={stats} />
           <DashboardCharts stats={stats} />
         </ScrollView>
@@ -816,10 +871,6 @@ export default function AdminDashboard() {
     </View>
   );
 }
-
-// ==================== ADMIN TABLE COMPONENT ====================
-
-
 
 // ==================== STYLES ====================
 const styles = StyleSheet.create({

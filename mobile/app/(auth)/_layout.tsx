@@ -55,7 +55,7 @@ import { View } from 'react-native';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [fontsLoaded] = useFonts({ SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf') });
+  const [fontsLoaded] = useFonts({ SpaceMono: require('assets/fonts/SpaceMono-Regular.ttf') });
   const [readyToHide, setReadyToHide] = useState(false);
 
   // Khi fonts load -> cho biết chúng ta sẵn sàng ẩn splash nhưng đợi layout onLayout

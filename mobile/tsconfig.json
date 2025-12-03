@@ -1,6 +1,7 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "allowJs": true,
     "strict": true,
     "baseUrl": ".",
     "paths": {
@@ -12,13 +13,17 @@
       "node",
       "react",
       "react-native"
-    ]
+    ],
+    "jsx": "react-native",
+    "allowImportingTsExtensions": true,
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
-    "nativewind-env.d.ts"
+    "nativewind-env.d.ts",
+    "**/*.js",           // thêm dòng này
+    "../server/**/*.js"
   ]
 }
