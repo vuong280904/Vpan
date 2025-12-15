@@ -31,7 +31,7 @@ interface TopicDetail {
 }
 
 // --- Assets & config
-const BASE_URL = 'http://192.168.2.7:5000';
+const BASE_URL = 'http://localhost:5000';
 const LOCAL_FRAME_URI = require('../../../assets/images/linhvat.png');
 const FINISH_FRAME_URI = require('../../../assets/images/nenlike.png');
 
@@ -282,13 +282,17 @@ const ShadowSentencesScreen: React.FC = () => {
 
   // playback
   const playRecording = async () => {
-    if (!recordingUri) return;
+if (!recordingUri) {
+      console.warn('[Shadow] playRecording: no recordingUri');
+      return;
+    }
+    console.log('[Shadow] playRecording uri=', recordingUri);
     try {
       await playback?.unloadAsync();
       const { sound } = await Audio.Sound.createAsync({ uri: recordingUri }, { shouldPlay: true });
       setPlayback(sound);
     } catch (err) {
-      console.error(err);
+      console.error('[Shadow] playRecording error', err);
       Alert.alert('Lỗi phát');
     }
   };

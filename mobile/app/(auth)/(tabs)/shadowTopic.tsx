@@ -18,7 +18,7 @@ interface Topic {
   description: string;
 }
 
-const BASE_URL = 'http://192.168.2.7:5000';
+const BASE_URL = 'http://localhost:5000';
 const MASCOT = require('../../../assets/images/linhvat.png');
 
 const ShadowTopicScreen = () => {
