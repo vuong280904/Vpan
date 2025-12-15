@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 
 // Thay bằng URL backend của bạn
-const API_URL = 'http://192.168.2.7:5000/api';
+const API_URL = 'http://localhost:5000/api';
 
 interface FlashcardSet {
     _id: string;

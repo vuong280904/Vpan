@@ -34,7 +34,7 @@ if (Platform.OS !== 'web') {
 }
 
 // TODO: Replace with your actual API base URL
-const API_URL = 'http://192.168.2.7:5000/api';
+const API_URL = 'http://localhost:5000/api';
 
 const getAuthToken = async () => {
   try {
