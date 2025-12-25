@@ -40,7 +40,7 @@
 
 const BASE_HOST = 'vpan-api.onrender.com'; // sửa nếu IP server khác
 const BASE_PORT = 5000;
-const BASE_URL = `http://${BASE_HOST}:${BASE_PORT}`;
+const BASE_URL = `https://${BASE_HOST}:${BASE_PORT}`;
 
 /**
  * Tìm từ tiếng Nhật
