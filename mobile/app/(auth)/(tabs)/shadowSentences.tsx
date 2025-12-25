@@ -31,7 +31,7 @@ interface TopicDetail {
 }
 
 // --- Assets & config
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = 'http://vpan-api.onrender.com';
 const LOCAL_FRAME_URI = require('../../../assets/images/linhvat.png');
 const FINISH_FRAME_URI = require('../../../assets/images/nenlike.png');
 
