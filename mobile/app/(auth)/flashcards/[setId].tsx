@@ -499,7 +499,7 @@ export default function FlashcardDetailScreen() {
       formData.append('meaning', meaning);
 
       // Only append image if it's a new image (not from server)
-      if (imageUri && !imageUri.includes('localhost')) {
+      if (imageUri && !imageUri.includes('vpan-api.onrender.com')) {
         const filename = imageUri.split('/').pop() || 'image.jpg';
         formData.append('image', {
           uri: imageUri,
