@@ -1,17 +1,11 @@
-# env
-.env
-
-# python
-__pycache__/
-*.pyc
-
 # AI models
 *.pt
 *.pkl
-modelAI/models/
+server/modelAI/models/
+server/modelAI/__pycache__/
 
 # uploads
-uploads/
+server/uploads/
 
-# node
-node_modules/
+# env
+.env
