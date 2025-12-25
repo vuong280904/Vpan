@@ -362,7 +362,7 @@ const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.23;
 const IS_TEST = true;
 // 👉 BACKEND API
-const API_URL = 'http://192.168.1.251:5000';
+const API_URL = 'https://192.168.1.251:5000';
 
 // 👉 Ví nhận tiền (DEVNET)
 const MERCHANT_WALLET = new PublicKey(
