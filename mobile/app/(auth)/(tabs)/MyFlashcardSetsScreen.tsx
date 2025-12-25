@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 
 // Thay bằng URL backend của bạn
-const API_URL = 'http://vpan-api.onrender.com/api';
+const API_URL = 'https://vpan-api.onrender.com/api';
 
 interface FlashcardSet {
     _id: string;
