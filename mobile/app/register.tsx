@@ -16,8 +16,8 @@ import {
 
 const API_URL = 
   Platform.OS === "web" 
-    ? "http://vpan-api.onrender.com/api/auth"
-    : "http://192.168.2.7/api/auth";
+    ? "https://vpan-api.onrender.com/api/auth"
+    : "https://192.168.2.7/api/auth";
 
 export default function RegisterScreen() {
   const [name, setName] = useState("");
