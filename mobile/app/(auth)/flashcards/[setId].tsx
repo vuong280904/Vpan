@@ -368,7 +368,7 @@ const FlashcardItem = ({ item, onEdit, onDelete }: { item: any, onEdit: () => vo
               <View style={styles.imageContainer}>
                 <Image
                   source={{
-                    uri: item.image.startsWith('http')
+                    uri: item.image.startsWith('https')
                       ? item.image
                       : `${API_URL.replace('/api', '')}${item.image}`,
                   }}
