@@ -25,7 +25,7 @@ import {
 import { Socket, io } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 
-const SOCKET_URL = 'http://vpan-api.onrender.com';
+const SOCKET_URL = 'https://vpan-api.onrender.com';
 
 interface AuthUser {
   id: string;
