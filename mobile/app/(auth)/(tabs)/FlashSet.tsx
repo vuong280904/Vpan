@@ -34,7 +34,7 @@ if (Platform.OS !== 'web') {
 }
 
 // TODO: Replace with your actual API base URL
-const API_URL = 'http://vpan-api.onrender.com/api';
+const API_URL = 'https://vpan-api.onrender.com/api';
 
 const getAuthToken = async () => {
   try {
