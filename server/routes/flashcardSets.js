@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const {
+  getMyFlashcardSets,
+  getPublicFlashcardSets,
   getAllFlashcardSets,
   getFlashcardSetById,
   createFlashcardSet,
@@ -9,14 +11,17 @@ const {
   getAllFlashcardSetsAdmin,
   adminUpdateFlashcardSet,
   adminDeleteFlashcardSet,
+  getPublicFlashcardsForSet,
 } = require('../controllers/flashcardSetController');
 const {
   getFlashcardsForSet,
   addFlashcardToSet,
   removeFlashcardFromSet,
 } = require('../controllers/flashcardController');
-const { protect, admin } = require('../middleware/authMiddleware');
-
+const { protect, admin } = require('../middleware/authMiddleware');    
+// Trong file router flashcardSet
+router.get('/public/:setId/flashcards', getPublicFlashcardsForSet); // ← THÊM DÒNG NÀY
+router.get('/public', getPublicFlashcardSets);
 // Root route: GET and POST for flashcard sets
 router.get('/', protect, getAllFlashcardSets);
 router.post('/', protect, createFlashcardSet);

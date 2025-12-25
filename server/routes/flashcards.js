@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
+
 const {
-  upload,
   createFlashcard,
   getFlashcardsForSet,
   addFlashcardToSet,
@@ -9,21 +9,82 @@ const {
   deleteFlashcard,
   removeFlashcardFromSet,
 } = require('../controllers/flashcardController');
+
 const { protect } = require('../middleware/authMiddleware');
+const conditionalUpload = require('../middleware/fileUpload');
 
-// Flashcard Set - Flashcard association routes (define specific routes first)
-router.get('/sets/:setId/flashcards', protect, getFlashcardsForSet);
-router.post('/sets/:setId/flashcards', protect, addFlashcardToSet);
-router.delete('/sets/:setId/flashcards/:flashcardId', protect, removeFlashcardFromSet);
+/* ======================================================
+   FLASHCARD SET ↔ FLASHCARD (DEFINE CỤ THỂ TRƯỚC)
+====================================================== */
 
-// Flashcard CRUD routes (define parameterized routes after specific ones)
-router.post('/', protect, upload.single('image'), createFlashcard);
-router.put('/:id', protect, upload.single('image'), updateFlashcard);
-router.delete('/:id', protect, deleteFlashcard);
+// Lấy flashcards trong 1 set
+router.get(
+  '/sets/:setId/flashcards',
+  protect,
+  getFlashcardsForSet
+);
 
-// Alternative routes for flashcard-sets path (for convenience)
-router.get('/:setId/flashcards', protect, getFlashcardsForSet);
-router.post('/:setId/flashcards', protect, addFlashcardToSet);
-router.delete('/:setId/flashcards/:flashcardId', protect, removeFlashcardFromSet);
+// Thêm flashcard vào set
+router.post(
+  '/sets/:setId/flashcards',
+  protect,
+  addFlashcardToSet
+);
+
+// Gỡ flashcard khỏi set
+router.delete(
+  '/sets/:setId/flashcards/:flashcardId',
+  protect,
+  removeFlashcardFromSet
+);
+
+/* ======================================================
+   FLASHCARD CRUD
+====================================================== */
+
+// Tạo flashcard (CÓ ẢNH)
+router.post(
+  '/',
+  protect,
+  conditionalUpload('image'), // ⭐ QUAN TRỌNG
+  createFlashcard
+);
+
+// Cập nhật flashcard (CÓ / KHÔNG ẢNH)
+router.put(
+  '/:id',
+  protect,
+  conditionalUpload('image'), // ⭐ QUAN TRỌNG
+  updateFlashcard
+);
+
+// Xóa flashcard
+router.delete(
+  '/:id',
+  protect,
+  deleteFlashcard
+);
+
+/* ======================================================
+   ALIAS ROUTES (CHO TIỆN FRONTEND)
+====================================================== */
+
+router.get(
+  '/:setId/flashcards',
+  protect,
+  getFlashcardsForSet
+);
+
+router.post(
+  '/:setId/flashcards',
+  protect,
+  addFlashcardToSet
+);
+
+router.delete(
+  '/:setId/flashcards/:flashcardId',
+  protect,
+  removeFlashcardFromSet
+);
 
 module.exports = router;

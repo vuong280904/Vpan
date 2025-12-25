@@ -37,7 +37,14 @@ const getFlashcardSetById = async (req, res) => {
 // @route   POST /api/flashcard-sets
 // @access  Private
 const createFlashcardSet = async (req, res) => {
-  const { title, description, tags, level, isPublic } = req.body;
+  let { name, title, description = '', tags = [], level = 'N5', isPublic = false } = req.body;
+
+  // Ưu tiên name nếu có, không thì title
+  title = name?.trim() || title?.trim();
+
+  if (!title) {
+    return res.status(400).json({ message: 'Tên bộ flashcard không được để trống' });
+  }
 
   try {
     const flashcardSet = new FlashcardSet({
@@ -49,13 +56,15 @@ const createFlashcardSet = async (req, res) => {
       owner: req.user.id,
     });
 
-    const createdFlashcardSet = await flashcardSet.save();
-    res.status(201).json(createdFlashcardSet);
+    const created = await flashcardSet.save();
+    res.status(201).json({
+      id: created._id,
+      name: created.title,  // trả về name để frontend dùng
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 };
-
 // @desc    Update a flashcard set
 // @route   PUT /api/flashcard-sets/:id
 // @access  Private
@@ -205,15 +214,87 @@ const adminDeleteFlashcardSet = async (req, res) => {
   }
 };
 
+// @desc    Get my flashcard sets (của user hiện tại)
+// @route   GET /api/flashcard-sets/my
+// @access  Private
+const getMyFlashcardSets = async (req, res) => {
+  try {
+    const sets = await FlashcardSet.find({ owner: req.user.id })
+      .select('title description tags level isPublic createdAt')
+      .sort({ createdAt: -1 });
+
+    res.json(sets);
+  } catch (err) {
+    console.error('Error getMyFlashcardSets:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+// @desc    Get all public flashcard sets with flashcards count
+// @route   GET /api/flashcard-sets/public
+// @access  Public
+const getPublicFlashcardSets = async (req, res) => {
+  try {
+    const sets = await FlashcardSet.find({ isPublic: true })
+      .populate('owner', 'name')
+      .populate('flashcards') // ← THÊM DÒNG NÀY ĐỂ POPULATE FLASHCARDS
+      .sort({ createdAt: -1 });
+
+    const result = sets.map(set => ({
+      _id: set._id,
+      title: set.title,
+      description: set.description || '',
+      level: set.level || 'N5',
+      createdAt: set.createdAt,
+      owner: set.owner,
+      isPublic: set.isPublic,
+      cardCount: set.flashcards?.length || 0, // ← THÊM CARD COUNT
+      flashcards: set.flashcards || [] // ← TRẢ VỀ DANH SÁCH FLASHCARD (cho trang detail)
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error getPublicFlashcardSets:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+// @desc    Get flashcards for a PUBLIC flashcard set (no auth required)
+// @route   GET /api/flashcard-sets/public/:setId/flashcards
+// @access  Public
+const getPublicFlashcardsForSet = async (req, res) => {
+  try {
+    const { setId } = req.params;
+
+    const flashcardSet = await FlashcardSet.findOne({
+      _id: setId,
+      isPublic: true
+    }).populate({
+      path: 'flashcards',
+      select: 'vocabulary phonetic meaning image createdAt' // chỉ lấy những gì cần cho quiz
+    });
+
+    if (!flashcardSet) {
+      return res.status(404).json({ message: 'Bộ flashcard không tồn tại hoặc không công khai' });
+    }
+
+    res.json(flashcardSet.flashcards || []);
+  } catch (err) {
+    console.error('Error in getPublicFlashcardsForSet:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
 module.exports = {
   getAllFlashcardSets,
   getFlashcardSetById,
   createFlashcardSet,
   updateFlashcardSet,
   deleteFlashcardSet,
-  // các hàm flashcard khác nếu có...
-
-  getAllFlashcardSetsAdmin,   // THÊM DÒNG NÀY
-  adminUpdateFlashcardSet,   // ← ADMIN ONLY
+  getAllFlashcardSetsAdmin,
+  adminUpdateFlashcardSet,
   adminDeleteFlashcardSet,
+
+  // THÊM MỚI
+  getMyFlashcardSets,
+  getPublicFlashcardSets,
+  getPublicFlashcardsForSet,
 };

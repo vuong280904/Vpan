@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const Book = require('../models/Book');
+const Payment = require('../models/Payment');
 const FlashcardSet = require('../models/FlashcardSet');
 const Notification = require('../models/Notification');
 
@@ -216,6 +217,39 @@ router.get('/flashcard-sets', protect, admin, async (req, res) => {
   } catch (err) {
     console.error('Admin get flashcard sets error:', err);
     res.status(500).json({ message: 'Lỗi server khi lấy flashcard sets' });
+  }
+});
+// ==================== THỐNG KÊ THANH TOÁN ====================
+// ==================== THỐNG KÊ THANH TOÁN (ĐÃ FIX LỖI + LOG CHI TIẾT) ====================
+router.get('/payments', protect, admin, async (req, res) => {
+  try {
+    console.log('>>> [ADMIN] Gọi GET /payments - User:', req.user?.email, 'Role:', req.user?.role);
+
+    // Kiểm tra model Payment có tồn tại không
+    if (!Payment) {
+      console.error('Payment model chưa được import!');
+      return res.status(500).json({ message: 'Payment model not found' });
+    }
+
+    const payments = await Payment.find({})
+      .populate('userId', 'name email')
+      .sort({ createdAt: -1 })
+      .lean(); // Dùng lean() để tránh lỗi populate nếu có
+
+    console.log(`>>> Tìm thấy ${payments.length} thanh toán`);
+
+    res.json(payments);
+  } catch (err) {
+    // ← LOG CHI TIẾT LỖI ĐỂ BẠN THẤY TRÊN TERMINAL
+    console.error('❌ LỖI CHI TIẾT TRONG /admin/payments:');
+    console.error(err);
+    if (err.stack) console.error(err.stack);
+
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: err.message || 'Unknown error',
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 });
 module.exports = router;

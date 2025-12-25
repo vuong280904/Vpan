@@ -58,7 +58,7 @@ app.use('/uploads', express.static(uploadFolder));
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   const dbConnected = dbState === 1;
-  
+
   res.json({
     status: 'OK',
     server: 'running',
@@ -152,7 +152,7 @@ app.get('/api/jishoApi/audio', async (req, res) => {
         bodyPreview = `<unable to read upstream body: ${e.message}>`;
       }
 
-      console.error(`[TTS proxy] Upstream returned ${upstream.status} for text="${text}". preview:`, bodyPreview.slice(0,1000));
+      console.error(`[TTS proxy] Upstream returned ${upstream.status} for text="${text}". preview:`, bodyPreview.slice(0, 1000));
       return res.status(502).json({ error: 'Không thể lấy audio từ TTS', upstreamStatus: upstream.status });
     }
 
@@ -165,15 +165,15 @@ app.get('/api/jishoApi/audio', async (req, res) => {
 
     upstream.data.on('error', (err) => {
       console.error('[TTS proxy] Stream error while piping upstream:', err);
-      try { res.destroy(err); } catch (e) {}
+      try { res.destroy(err); } catch (e) { }
     });
   } catch (err) {
     console.error('[TTS proxy] Unexpected error when fetching TTS:', err && err.message ? err.message : err);
     if (err.response) {
       try {
         const preview = await streamToString(err.response.data, 2000).catch(() => '<no body>');
-        console.error('[TTS proxy] err.response.preview:', preview.slice(0,1000));
-      } catch (e) {}
+        console.error('[TTS proxy] err.response.preview:', preview.slice(0, 1000));
+      } catch (e) { }
     }
     return res.status(500).json({ error: 'Lỗi server khi lấy audio', detail: err.message });
   }
@@ -197,7 +197,16 @@ async function streamToString(stream, maxBytes = 2048) {
 // Spawn Python FastAPI server
 // ======================
 const PYTHON_SERVER_PORT = 8000;
-const pythonProcess = spawn('python', [path.join(__dirname, 'modelAI', 'shadowAI_server.py')]);
+const pythonProcess = spawn(
+  'python',
+  [path.join(__dirname, 'modelAI', 'shadowAI_server.py')],
+  {
+    env: {
+      ...process.env   // 🔥 DÒNG QUYẾT ĐỊNH SỐNG CÒN
+    }
+  }
+);
+
 
 pythonProcess.stdout.on('data', (data) => console.log('>>> PYTHON:', data.toString().trim()));
 pythonProcess.stderr.on('data', (data) => console.error('>>> PYTHON ERR:', data.toString().trim()));
@@ -270,15 +279,15 @@ app.post('/api/shadow/predict', upload.single('audio'), async (req, res) => {
 // ======================
 // Import routers
 // ======================
-const shadowRouter       = require('./routes/shadowRouter');
-const chapterRoutes      = require('./routes/chapters');
-const appRouter          = require('./routes/appRouter');
-const authRouter         = require('./routes/auth');
-const bookRoutes         = require('./routes/books');
+const shadowRouter = require('./routes/shadowRouter');
+const chapterRoutes = require('./routes/chapters');
+const appRouter = require('./routes/appRouter');
+const authRouter = require('./routes/auth');
+const bookRoutes = require('./routes/books');
 const flashcardSetRoutes = require('./routes/flashcardSets');
-const flashcardRoutes    = require('./routes/flashcards');
-const userRoutes         = require('./routes/userRoutes');
-const chatRoutes         = require('./routes/chat');
+const flashcardRoutes = require('./routes/flashcards');
+const userRoutes = require('./routes/userRoutes');
+const chatRoutes = require('./routes/chat');
 const adminRoutes = require('./routes/admin');
 
 app.use('/api/payment', paymentRoutes);
