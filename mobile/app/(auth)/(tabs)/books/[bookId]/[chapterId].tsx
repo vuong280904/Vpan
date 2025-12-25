@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 
 const PAGE_TURN_SOUND = require('../../../../../assets/sounds/page-turn.mp3');
-const API_BASE = 'http://vpan-api.onrender.com';
+const API_BASE = 'https://vpan-api.onrender.com';
 
 export default function EhonReader() {
   const params = useLocalSearchParams();
