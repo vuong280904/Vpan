@@ -38,7 +38,7 @@
 // Nếu bạn dùng downloadAsync ở nơi khác, import legacy nếu muốn:
 // import * as FileSystem from 'expo-file-system/legacy';
 
-const BASE_HOST = 'localhost'; // sửa nếu IP server khác
+const BASE_HOST = 'vpan-api.onrender.com'; // sửa nếu IP server khác
 const BASE_PORT = 5000;
 const BASE_URL = `http://${BASE_HOST}:${BASE_PORT}`;
 
