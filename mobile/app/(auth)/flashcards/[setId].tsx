@@ -19,7 +19,7 @@ import {
   View,
 } from 'react-native';
 
-const API_URL = 'http://vpan-api.onrender.com/api';
+const API_URL = 'https://vpan-api.onrender.com/api';
 
 let getItemAsync: (key: string) => Promise<string | null>;
 
