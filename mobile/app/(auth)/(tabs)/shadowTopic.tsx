@@ -18,7 +18,7 @@ interface Topic {
   description: string;
 }
 
-const BASE_URL = 'http://vpan-api.onrender.com';
+const BASE_URL = 'https://vpan-api.onrender.com';
 const MASCOT = require('../../../assets/images/linhvat.png');
 
 const ShadowTopicScreen = () => {
