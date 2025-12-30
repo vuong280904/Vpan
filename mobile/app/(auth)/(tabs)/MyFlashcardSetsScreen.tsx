@@ -3,12 +3,13 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
-import { router } from 'expo-router'; // ← thêm dòng này vào đầu file (nếu chưa có)
+import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     FlatList,
+    Platform,
     RefreshControl,
     StyleSheet,
     Text,
@@ -16,8 +17,9 @@ import {
     View
 } from 'react-native';
 
-// Thay bằng URL backend của bạn
-const API_URL = 'http://localhost:5000/api';
+const API_URL = Platform.OS === "web" 
+    ? "http://localhost:5000/api"
+    : "http://172.20.10.3:5000/api";
 
 interface FlashcardSet {
     _id: string;
@@ -50,7 +52,6 @@ export default function MyFlashcardSetsScreen({ navigation }: any) {
 
             const fetchedSets = response.data;
 
-            // Tính thống kê
             const totalCards = fetchedSets.reduce((sum: number, set: FlashcardSet) => sum + (set.flashcards?.length || 0), 0);
             const avgScore = fetchedSets.length > 0
                 ? fetchedSets.reduce((sum: number, set: FlashcardSet) => sum + (set.highScore || 0), 0) / fetchedSets.length
@@ -93,7 +94,7 @@ export default function MyFlashcardSetsScreen({ navigation }: any) {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            const token = await AsyncStorage.getItem('userToken');
+                            const token = await AsyncStorage.getItem('token'); // sửa thành 'token' cho thống nhất
                             await axios.delete(`${API_URL}/flashcard-sets/${id}`, {
                                 headers: { Authorization: `Bearer ${token}` },
                             });
@@ -120,9 +121,7 @@ export default function MyFlashcardSetsScreen({ navigation }: any) {
                 </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-                style={{ flex: 1 }}
-            >
+            <TouchableOpacity style={{ flex: 1 }}>
                 <Text style={styles.boxContentHeader} numberOfLines={2}>
                     {item.title}
                 </Text>
@@ -177,11 +176,23 @@ export default function MyFlashcardSetsScreen({ navigation }: any) {
 
     return (
         <View style={styles.container}>
-            {/* Header thống kê tổng quan */}
-            <View style={styles.projectsSectionHeader}>
+            {/* ==================== HEADER VỚI NÚT BACK ==================== */}
+            <View style={styles.headerContainer}>
+                <TouchableOpacity 
+                    onPress={() => router.back()} 
+                    style={styles.backButton}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons name="arrow-back" size={28} color="#fff" />
+                </TouchableOpacity>
+
                 <Text style={styles.headerTitle}>Bộ flashcard của tôi</Text>
+
+                {/* View rỗng để cân bằng layout bên phải */}
+                <View style={{ width: 48 }} />
             </View>
 
+            {/* Thống kê tổng quan */}
             <View style={styles.statsContainer}>
                 <View style={styles.statBig}>
                     <Text style={styles.statNumber}>{stats.totalSets}</Text>
@@ -197,17 +208,21 @@ export default function MyFlashcardSetsScreen({ navigation }: any) {
                 </View>
             </View>
 
-            {/* Danh sách */}
+            {/* Danh sách bộ flashcard */}
             <FlatList
                 data={sets}
                 keyExtractor={(item) => item._id}
                 renderItem={renderSet}
-                numColumns={1}  // <-- ĐÚNG: dùng = và bọc trong {}
+                numColumns={1}
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
                 }
-
-                contentContainerStyle={{ padding: 16 }}  // <-- ĐÚNG: bọc trong {}
+                contentContainerStyle={{ padding: 16 }}
+                ListEmptyComponent={
+                    <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>Bạn chưa có bộ flashcard nào</Text>
+                    </View>
+                }
             />
         </View>
     );
@@ -217,16 +232,34 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f3f6fd' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f6fd' },
 
-    projectsSectionHeader: {
-        padding: 20,
+    // Header mới với nút back
+    headerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 12,
         backgroundColor: '#fff',
         borderBottomWidth: 1,
         borderColor: '#eee',
+    },
+    backButton: {
+        padding: 10,
+        backgroundColor: '#4f3ff0',
+        borderRadius: 14,
+        elevation: 4,
+        shadowColor: '#000',
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
     },
     headerTitle: {
         fontSize: 24,
         fontWeight: '700',
         color: '#1f1c2e',
+        flex: 1,
+        textAlign: 'center',
+        marginRight: -48, // bù lại cho nút back bên trái
     },
 
     statsContainer: {
@@ -234,6 +267,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-around',
         padding: 20,
         backgroundColor: '#fff',
+        marginBottom: 8,
     },
     statBig: {
         alignItems: 'center',
@@ -332,17 +366,5 @@ const styles = StyleSheet.create({
         marginTop: 16,
         fontSize: 18,
         color: '#999',
-    },
-    createBtn: {
-        marginTop: 20,
-        backgroundColor: '#4f3ff0',
-        paddingHorizontal: 30,
-        paddingVertical: 12,
-        borderRadius: 25,
-    },
-    createBtnText: {
-        color: '#fff',
-        fontWeight: 'bold',
-        fontSize: 16,
     },
 });

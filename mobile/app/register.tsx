@@ -17,7 +17,7 @@ import {
 const API_URL = 
   Platform.OS === "web" 
     ? "http://localhost:5000/api/auth"
-    : "http://192.168.2.7/api/auth";
+    : "http://172.20.10.3/api/auth";
 
 export default function RegisterScreen() {
   const [name, setName] = useState("");

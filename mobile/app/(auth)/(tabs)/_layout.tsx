@@ -1,34 +1,27 @@
-// // app/(tabs)/_layout.tsx ← CHỈ CÒN ProtectedRoute, KHÔNG CẦN AuthProvider NỮA!
-// import { Tabs } from "expo-router";
-// import ProtectedRoute from "../../../components/ProtectedRoute";
-
-// export default function TabsLayout() {
-//   return (
-//     <ProtectedRoute>
-//       <Tabs screenOptions={{ headerShown: false }}>
-//         <Tabs.Screen name="index" options={{ title: "Home" }} />
-//         <Tabs.Screen name="explore" options={{ title: "Explore" }} />
-//         {/* các tab khác */}
-//       </Tabs>
-//     </ProtectedRoute>
-//   );
-// }
-// app/(auth)/(tabs)/_layout.tsx
-// app/(auth)/_layout.tsx  ← TẠO MỚI FILE NÀY
+// app/(auth)/_layout.tsx
 import { Redirect, Slot } from 'expo-router';
 import React from 'react';
+import { Platform } from 'react-native'; // ← Thêm import này
 import { useAuth } from '../../../context/AuthContext';
 
 export default function AuthLayout() {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
-    return null; // hoặc loading spinner
+    return null; // hoặc <LoadingSpinner /> nếu bạn có
   }
 
   if (!user) {
+    // Nếu không phải web (tức là mobile) → redirect về /login
+    // Nếu là web → giữ nguyên /AuthScreen
+    if (Platform.OS !== 'web') {
+      return <Redirect href="/login" />;
+    }
+
+    // Trường hợp web
     return <Redirect href="/AuthScreen" />;
   }
 
-  return <Slot />; // Cho phép vào (tabs)
+  // Người dùng đã đăng nhập → cho phép truy cập các route con (tabs)
+  return <Slot />;
 }

@@ -149,5 +149,80 @@ router.delete('/:id', auth, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+// 3. LẤY THÔNG TIN USER HIỆN TẠI (ĐẦY ĐỦ TRƯỜNG)
+router.get('/me', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .select('-password') // không trả password
+      .lean();
 
+    if (!user) return res.status(404).json({ message: 'User không tồn tại' });
+
+    res.json({
+      id: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      avatarURL: user.avatarURL || null,
+      role: user.role,
+      level: user.level || null,
+      sponsoredBy: user.sponsoredBy || null,
+      
+      // 👇 THÊM 2 DÒNG NÀY – QUAN TRỌNG NHẤT!
+      plan: user.plan || 'free',                    // mặc định free nếu chưa có
+      planExpiresAt: user.planExpiresAt || null,    // ngày hết hạn
+    });
+  } catch (err) {
+    console.error('Lỗi lấy profile:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// 4. HOÀN THÀNH ONBOARDING (CẬP NHẬT NAME, SPONSORED BY, LEVEL)
+router.patch('/me/onboarding', auth, async (req, res) => {
+  try {
+    const { name, sponsoredBy, level } = req.body;
+
+    // Validate level
+    const validLevels = ['N5', 'N4', 'N3', 'N2', 'N1'];
+    if (level && !validLevels.includes(level)) {
+      return res.status(400).json({ message: 'Level không hợp lệ' });
+    }
+
+    // Validate name
+    if (name !== undefined && (!name || typeof name !== 'string' || name.trim() === '')) {
+      return res.status(400).json({ message: 'Tên không hợp lệ' });
+    }
+
+    const updates = {
+      updatedAt: new Date()
+    };
+
+    if (name !== undefined) updates.name = name.trim();
+    if (sponsoredBy !== undefined) updates.sponsoredBy = sponsoredBy?.trim() || null;
+    if (level !== undefined) updates.level = level; // có thể là null nếu chưa làm test, nhưng thường sẽ có giá trị
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      updates,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ message: 'User không tồn tại' });
+
+    res.json({
+      success: true,
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        avatarURL: user.avatarURL || null,
+        role: user.role,
+        level: user.level,
+        sponsoredBy: user.sponsoredBy,
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi hoàn thành onboarding:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 module.exports = router;

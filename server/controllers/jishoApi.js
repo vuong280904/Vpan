@@ -1,11 +1,11 @@
 import { Platform } from 'react-native';
 export async function searchJapaneseWord(keyword) {
   if (!keyword || !keyword.trim()) return [];
-  const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.2.7";
+  const LOCALHOST = Platform.OS === "android" ? "172.20.10.3" : "192.168.2.5";
 
   try {
     const response = await fetch(
-      `http://192.168.2.7:5000/api/jishoApi/search?keyword=${encodeURIComponent(keyword)}`
+      `http://192.168.2.5:5000/api/jishoApi/search?keyword=${encodeURIComponent(keyword)}`
     );
 
     if (!response.ok) {
@@ -24,9 +24,9 @@ export async function searchJapaneseWord(keyword) {
 // New: return server audio endpoint URL (no fetching)
 export async function getPronunciationUrl(text) {
   if (!text || !text.trim()) return '';
-  const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.2.7";
+  const LOCALHOST = Platform.OS === "android" ? "172.20.10.3" : "192.168.2.5";
 
   // Return the server endpoint that proxies the TTS audio.
   // The client can use this URL directly with Audio.Sound.createAsync({ uri }) or with HTML Audio on web
-  return `http://192.168.2.7:5000/api/jishoApi/audio?text=${encodeURIComponent(text)}`;
+  return `http://172.20.10.3:5000/api/jishoApi/audio?text=${encodeURIComponent(text)}`;
 }

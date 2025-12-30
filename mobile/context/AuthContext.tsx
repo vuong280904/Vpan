@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
+import { Platform } from "react-native";
 
 type User = {
   id: string;
@@ -92,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     await AsyncStorage.multiRemove(["token", "user"]);
-    router.replace("/AuthScreen"); // hoặc trang login của bạn
+    router.replace(Platform.OS === 'web' ? '/AuthScreen' : '/login');
   };
 
   return (

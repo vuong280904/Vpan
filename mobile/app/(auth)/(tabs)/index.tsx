@@ -1,26 +1,33 @@
-// VpanDashboard.merged.tsx
+// VpanDashboard.tsx
 import * as expoAv from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import {
-  ArrowRight, Bell, BookOpen, Crown, Edit2, Layers, LogOut, MessageSquare, Mic2,
-  PenTool, Search, Sun, X
+  ArrowRight, Bell, BookOpen, Crown, Edit2,
+  Layers,
+  LogOut, MessageSquare, Mic2,
+  Moon,
+  Plus, Search, Sun,
+  X
 } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Dimensions, Image, Modal,
+  Dimensions, Image,
+  Modal,
   Platform,
   SafeAreaView, ScrollView, StatusBar,
-  StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
+  Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
 } from 'react-native';
 import { io, Socket } from 'socket.io-client';
+import { styles } from './index.styles';
 
 import { useAuth } from '../../../context/AuthContext';
 import api from '../../utils/api';
 import { getPronunciationUrl, searchJapaneseWord } from '../../utils/jishoApi';
 
 // ==================== ASSET ====================
-const PROMO_IMAGE = require('../../../assets/images/NangVipNgay.png'); // chỉnh đường dẫn nếu cần
+const PROMO_IMAGE = require('../../../assets/images/NangVipNgay.png');
 
 // ==================== TYPES ====================
 interface JapaneseWord {
@@ -38,15 +45,25 @@ interface User {
   email: string;
   avatarURL?: string;
   token?: string;
+  level?: string | null;         // ← THÊM TRƯỜNG NÀY
+  sponsoredBy?: string | null;   // ← (tùy chọn, nếu muốn dùng luôn)
+  plan?: string;              // 'free' | 'pro' | 'premium' | 'master' | 'lifetime'
+  planExpiresAt?: string | null; // ISO string hoặc null
+}
+
+interface FlashcardSet {
+  _id: string;
+  title: string;
+  description?: string;
+  cardCount?: number;
+  isPublic?: boolean;
 }
 
 // ==================== HELPERS ====================
-// Keep safe avatar logic from old homepage (including ImgBB UA fix)
 const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
   const avatarURL = user?.avatarURL && user.avatarURL.trim() !== '' ? user.avatarURL.trim() : null;
 
   if (avatarURL) {
-    // Fix ImgBB không hiện ảnh do thiếu User-Agent
     if (avatarURL.includes('ibb.co') || avatarURL.includes('i.ibb.co')) {
       return {
         uri: avatarURL,
@@ -58,31 +75,18 @@ const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
     return { uri: avatarURL } as any;
   }
 
-  // Fallback về pravatar
   return { uri: `https://i.pravatar.cc/300?u=${encodeURIComponent(user?.email || 'unknown')}` } as any;
 };
 
 const { width } = Dimensions.get('window');
-const SOCKET_URL = 'https://vpan-api.onrender.com';
-
-// Quick actions
-const QUICK_ACTIONS = [
-  { title: 'Flashcard', icon: Layers, color: '#f472b6', bg: '#f9a8d4' },
-  { title: 'Luyện Thi', icon: PenTool, color: '#fb923c', bg: '#fdba74' },
-  { title: 'Shadowing', icon: Mic2, color: '#38bdf8', bg: '#7dd3fc' },
-  { title: 'Sách Song Ngữ', icon: BookOpen, color: '#8b5cf6', bg: '#c4b5fd' },
-];
-
-const flashcards = [
-  { id: 1, title: 'Flashcard Ngữ pháp N3' },
-  { id: 2, title: 'Flashcard Từ vựng N4' },
-  { id: 3, title: 'Flashcard Kanji Sơ cấp' },
-];
+const SOCKET_URL = Platform.OS === "web"
+  ? "http://localhost:5000"
+  : "http://172.20.10.3:5000";
+const ITEMS_PER_PAGE = 4;
 
 // ==================== COMPONENT ====================
 export default function VpanDashboardMerged() {
-  // promo modal state
-  const [showPromo, setShowPromo] = useState(true); // true => show on mount
+  const [showPromo, setShowPromo] = useState(false);
 
   const { user, logout } = useAuth();
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -93,13 +97,11 @@ export default function VpanDashboardMerged() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Chat state (restored)
   const [recentChats, setRecentChats] = useState<any[]>([]);
   const [recentChatsLoading, setRecentChatsLoading] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const socketRef = useRef<Socket | null>(null);
 
-  // UI dropdowns (restored)
   const [showMessageDropdown, setShowMessageDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -108,26 +110,119 @@ export default function VpanDashboardMerged() {
   const [chatSearchLoading, setChatSearchLoading] = useState(false);
   const [searchResultsUsers, setSearchResultsUsers] = useState<User[]>([]);
 
+  const [myFlashcardSets, setMyFlashcardSets] = useState<FlashcardSet[]>([]);
+  const [publicFlashcardSets, setPublicFlashcardSets] = useState<FlashcardSet[]>([]);
+  const [loadingMySets, setLoadingMySets] = useState(true);
+  const [loadingPublicSets, setLoadingPublicSets] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [publicPage, setPublicPage] = useState(1);
+
+  const [fullUser, setFullUser] = useState<User | null>(null); // user đầy đủ từ API
+  const [loadingUser, setLoadingUser] = useState(true); // trạng thái đang fetch
   const isDark = theme === 'dark';
 
-  // promo press handler -> navigate to /upvip
   const onPromoPress = () => {
     setShowPromo(false);
-    router.push('/upgrade' as any);
+    router.push('/upgrade/upgrade' as any);
   };
+  // 👇 THAY THẾ HOÀN TOÀN useEffect này
+  useEffect(() => {
+    if (loadingUser) {
+      // Đang tải → không hiện gì cả (không flash)
+      return;
+    }
 
-  // redirect if no user
+    // Đã tải xong
+    if (!fullUser?.plan || fullUser.plan === 'free') {
+      setShowPromo(true);  // chỉ hiện khi là free
+    } else {
+      setShowPromo(false); // premium → ẩn luôn
+    }
+  }, [fullUser, loadingUser]);
   useEffect(() => {
     if (!user) {
       router.replace(Platform.OS === 'web' ? '/AuthScreen' : '/login');
+      return;
     }
+
+    // Fetch thông tin user đầy đủ từ backend để lấy trường level
+    const fetchFullUser = async () => {
+      try {
+        setLoadingUser(true);
+        const token = (user as any)?.token;
+        const res = await api.get('/api/users/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setFullUser(res.data);
+      } catch (err) {
+        console.error('Lỗi lấy thông tin user:', err);
+        // Nếu lỗi có thể logout hoặc để nguyên dashboard
+      } finally {
+        setLoadingUser(false);
+      }
+    };
+
+    fetchFullUser();
   }, [user]);
+
+  useEffect(() => {
+    if (loadingUser) return; // đang tải thì chưa làm gì
+
+    if (fullUser && (fullUser.level === null || fullUser.level === undefined)) {
+      // Chưa có level → chuyển sang survey
+      router.replace('/survey/survey');
+    }
+  }, [fullUser, loadingUser]);
 
   useEffect(() => {
     StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
   }, [isDark]);
 
-  // ==================== SOCKET (restore) ====================
+  // ==================== FETCH FLASHCARD SETS ====================
+  useEffect(() => {
+    if (!user) return;
+
+    const token = (user as any)?.token;
+
+    const fetchMySets = async () => {
+      setLoadingMySets(true);
+      try {
+        const res = await api.get('/api/flashcard-sets', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setMyFlashcardSets(res.data || []);
+      } catch (err) {
+        console.error('Lỗi lấy bộ flashcard của tôi:', err);
+        setMyFlashcardSets([]);
+      } finally {
+        setLoadingMySets(false);
+      }
+    };
+
+    const fetchPublicSets = async () => {
+      setLoadingPublicSets(true);
+      try {
+        const res = await api.get('/api/flashcard-sets/public');
+        setPublicFlashcardSets(res.data || []);
+      } catch (err) {
+        console.error('Lỗi lấy bộ flashcard public:', err);
+        setPublicFlashcardSets([]);
+      } finally {
+        setLoadingPublicSets(false);
+      }
+    };
+
+    fetchMySets();
+    fetchPublicSets();
+  }, [user]);
+
+  const totalPages = Math.ceil(myFlashcardSets.length / ITEMS_PER_PAGE);
+  const paginatedSets = myFlashcardSets.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // ==================== SOCKET ====================
   useEffect(() => {
     if (!user) return;
     const token = (user as any)?.token;
@@ -142,7 +237,6 @@ export default function VpanDashboardMerged() {
     socket.on('connect', () => console.log('Socket connected:', socket.id));
     socket.on('onlineUsers', (ids: string[]) => setOnlineUsers(ids));
 
-    // new message handling -> update recentChats
     socket.on('newMessage', (msg: any) => {
       try {
         if (msg.sender?.id === (user as any)?.id) return;
@@ -160,7 +254,6 @@ export default function VpanDashboardMerged() {
       } catch (e) { console.warn(e); }
     });
 
-    // notifications events
     socket.on('newNotification', (notif: any) => {
       setNotifications(prev => [notif, ...prev]);
       if (!notif.read) setUnreadCount(c => c + 1);
@@ -171,7 +264,6 @@ export default function VpanDashboardMerged() {
       setUnreadCount(list.filter((n: any) => !n.read).length);
     });
 
-    // recentChats list response
     socket.on('recentChats', (chats: any[]) => {
       try {
         const formatted = chats.map(chat => ({
@@ -187,20 +279,17 @@ export default function VpanDashboardMerged() {
     });
 
     return () => {
-      try { socket.disconnect(); } catch (e) {}
+      try { socket.disconnect(); } catch (e) { }
       socketRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // When opening notifications dropdown, ask server for list
   useEffect(() => {
     if (showNotifications && socketRef.current?.connected) {
       socketRef.current.emit('getNotifications');
     }
   }, [showNotifications]);
 
-  // When opening message dropdown, fetch recent chats
   useEffect(() => {
     if (!showMessageDropdown || !user || !socketRef.current?.connected) {
       setRecentChats([]);
@@ -210,7 +299,7 @@ export default function VpanDashboardMerged() {
     socketRef.current.emit('getRecentChats');
   }, [showMessageDropdown, user]);
 
-  // ==================== CHAT SEARCH (small) ====================
+  // ==================== CHAT SEARCH ====================
   useEffect(() => {
     if (!chatSearchMode || !user) {
       setSearchResultsUsers([]);
@@ -243,7 +332,7 @@ export default function VpanDashboardMerged() {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [chatSearchMode, chatSearchQuery, user]);
 
-  // ==================== JISHO SEARCH & PRONUNCIATION (from new) ====================
+  // ==================== JISHO SEARCH & PRONUNCIATION ====================
   const handleSearch = async () => {
     if (!search.trim()) return;
     setResults([]);
@@ -263,91 +352,62 @@ export default function VpanDashboardMerged() {
     }
   };
 
-  // const playPronunciation = async (text: string) => {
-  //   if (!text) return;
-  //   try {
-  //     const url = await getPronunciationUrl(text);
-  //     if (!url) return;
-
-  //     if (Platform.OS === 'web') {
-  //       const audio = new (window as any).Audio(url);
-  //       audio.play().catch(() => {});
-  //       return;
-  //     }
-
-  //     const { sound } = await expoAv.Audio.Sound.createAsync({ uri: url }, { shouldPlay: true });
-  //     sound.setOnPlaybackStatusUpdate((status) => {
-  //       if (status.isLoaded && status.didJustFinish) {
-  //         sound.unloadAsync().catch(() => {});
-  //       }
-  //     });
-  //   } catch (err) {
-  //     console.error('Lỗi phát âm:', err);
-  //   }
-  // };
-
   const playPronunciation = async (text: string) => {
-  if (!text) return;
-  try {
-    const url = await getPronunciationUrl(text);
-    if (!url) return;
-
-    console.log('playPronunciation url=', url);
-
-    if (Platform.OS === 'web') {
-      const audio = new (window as any).Audio(url);
-      audio.play().catch((e: any) => console.warn('Web audio play failed', e));
-      return;
-    }
-
-    let finalUrl = url;
-    if (!/^https?:\/\//i.test(finalUrl) && !finalUrl.startsWith('file://')) {
-      finalUrl = encodeURI(finalUrl);
-    }
-
-    // quick GET check
-    let ok = false;
+    if (!text) return;
     try {
-      const resp = await fetch(finalUrl, { method: 'GET', cache: 'no-store' });
-      ok = resp.ok;
-      if (!ok) console.warn('playPronunciation: GET returned', resp.status);
-    } catch (e) {
-      console.warn('playPronunciation: health check failed', e);
-    }
+      const url = await getPronunciationUrl(text);
+      if (!url) return;
 
-    // nếu GET không ok -> download rồi play local
-    if (!ok) {
+      if (Platform.OS === 'web') {
+        const audio = new (window as any).Audio(url);
+        audio.play().catch((e: any) => console.warn('Web audio play failed', e));
+        return;
+      }
+
+      let finalUrl = url;
+      if (!/^https?:\/\//i.test(finalUrl) && !finalUrl.startsWith('file://')) {
+        finalUrl = encodeURI(finalUrl);
+      }
+
+      let ok = false;
       try {
-        const dest = `${(FileSystem as any).cacheDirectory}tts_${encodeURIComponent(text)}.mp3`;
-        const dl = await FileSystem.downloadAsync(finalUrl, dest);
-        const info = await FileSystem.getInfoAsync(dl.uri);
-        if (!info.exists) throw new Error('Downloaded file not exists');
-
-        // create and play (local)
-        const { sound } = await expoAv.Audio.Sound.createAsync({ uri: dl.uri }, { shouldPlay: true });
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            sound.unloadAsync().catch(() => {});
-          }
-        });
-        return;
+        const resp = await fetch(finalUrl, { method: 'GET', cache: 'no-store' });
+        ok = resp.ok;
+        if (!ok) console.warn('playPronunciation: GET returned', resp.status);
       } catch (e) {
-        console.warn('playPronunciation: download+play failed', e);
-        return;
+        console.warn('playPronunciation: health check failed', e);
       }
-    }
 
-    // play remote directly
-    const { sound } = await expoAv.Audio.Sound.createAsync({ uri: finalUrl }, { shouldPlay: true });
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        sound.unloadAsync().catch(() => {});
+      if (!ok) {
+        try {
+          const dest = `${(FileSystem as any).cacheDirectory}tts_${encodeURIComponent(text)}.mp3`;
+          const dl = await FileSystem.downloadAsync(finalUrl, dest);
+          const info = await FileSystem.getInfoAsync(dl.uri);
+          if (!info.exists) throw new Error('Downloaded file not exists');
+
+          const { sound } = await expoAv.Audio.Sound.createAsync({ uri: dl.uri }, { shouldPlay: true });
+          sound.setOnPlaybackStatusUpdate((status) => {
+            if (status.isLoaded && status.didJustFinish) {
+              sound.unloadAsync().catch(() => { });
+            }
+          });
+          return;
+        } catch (e) {
+          console.warn('playPronunciation: download+play failed', e);
+          return;
+        }
       }
-    });
-  } catch (err) {
-    console.error('Lỗi phát âm:', err);
-  }
-};
+
+      const { sound } = await expoAv.Audio.Sound.createAsync({ uri: finalUrl }, { shouldPlay: true });
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync().catch(() => { });
+        }
+      });
+    } catch (err) {
+      console.error('Lỗi phát âm:', err);
+    }
+  };
 
   // ==================== UI Helpers ====================
   const closeAll = () => {
@@ -372,13 +432,38 @@ export default function VpanDashboardMerged() {
 
   const confirmLogout = async () => {
     setLogoutModalVisible(false);
+
     try {
-      await api.post('/api/logout', {}, { headers: { Authorization: `Bearer ${(user as any)?.token}` } });
+      await api.post('/api/logout', {}, {
+        headers: { Authorization: `Bearer ${(user as any)?.token}` }
+      });
     } catch (err) {
       console.error('Logout lỗi:', err);
     }
+
+    // Thực hiện logout (xóa token, user state, v.v.)
     logout();
-    router.replace('/AuthScreen');
+
+    // Kiểm tra platform
+    if (Platform.OS !== 'web') {
+      // Trên mobile → chuyển về trang login
+      router.replace('/login');
+    } else {
+      // Trên web → giữ nguyên hành vi cũ hoặc cũng về /login nếu muốn thống nhất
+      router.replace('/AuthScreen'); // hoặc router.replace('/login') nếu muốn thống nhất
+    }
+  };
+
+  const createNewSet = () => {
+    router.push('/flashSet' as any);
+  };
+
+  const openMySet = (setId: string) => {
+    router.push(`/flashcards/${setId}`);
+  };
+
+  const openPublicSet = (setId: string) => {
+    router.push(`/flashcards/${setId}`);
   };
 
   if (!user) {
@@ -409,19 +494,19 @@ export default function VpanDashboardMerged() {
             />
             {search.length > 0 && (
               <TouchableOpacity onPress={() => { setSearch(''); setResults([]); }}>
-                <X color="#94a3b8" size={20} style={{ marginRight: 12 }} />
+                <X color={isDark ? '#94a3b8' : '#64748b'} size={20} style={{ marginRight: 12 }} />
               </TouchableOpacity>
             )}
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.iconCircle} onPress={() => setShowMessageDropdown(s => !s)}>
-              <MessageSquare color={isDark ? '#fff' : '#000'} width={20} height={20} />
+            <TouchableOpacity style={[styles.iconCircle, isDark ? styles.iconCircleDark : styles.iconCircleLight]} onPress={() => setShowMessageDropdown(s => !s)}>
+              <MessageSquare color={isDark ? '#fff' : '#1f2937'} width={20} height={20} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.iconCircle} onPress={() => setShowNotifications(s => !s)}>
+            <TouchableOpacity style={[styles.iconCircle, isDark ? styles.iconCircleDark : styles.iconCircleLight]} onPress={() => setShowNotifications(s => !s)}>
               <View style={{ position: 'relative' }}>
-                <Bell color={isDark ? '#fff' : '#000'} width={20} height={20} />
+                <Bell color={isDark ? '#fff' : '#1f2937'} width={20} height={20} />
                 {unreadCount > 0 && (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
@@ -430,8 +515,12 @@ export default function VpanDashboardMerged() {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.iconCircle} onPress={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))}>
-              {isDark ? <Sun color="#ffd166" width={20} height={20} /> : <Sun color="#555" width={20} height={20} />}
+            <TouchableOpacity style={[styles.iconCircle, isDark ? styles.iconCircleDark : styles.iconCircleLight]} onPress={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))}>
+              {isDark ? (
+                <Sun color="#fbbf24" width={20} height={20} />
+              ) : (
+                <Moon color="#1f2937" width={20} height={20} />
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => setAvatarOpen(s => !s)} style={styles.avatarBtn}>
@@ -444,27 +533,27 @@ export default function VpanDashboardMerged() {
         {showMessageDropdown && (
           <TouchableWithoutFeedback onPress={() => { }}>
             <View pointerEvents="box-none" style={[styles.messageDropdown, isDark ? styles.menuDark : styles.menuLight]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#444' }}>
+              <View style={[styles.dropdownHeader, isDark ? styles.borderDark : styles.borderLight]}>
                 {chatSearchMode ? (
                   <>
                     <TouchableOpacity onPress={() => { setChatSearchMode(false); setChatSearchQuery(''); }}>
-                      <X color={isDark ? '#fff' : '#000'} size={24} />
+                      <X color={isDark ? '#fff' : '#1f2937'} size={24} />
                     </TouchableOpacity>
                     <TextInput
                       placeholder="Tìm người để chat..."
-                      placeholderTextColor="#888"
+                      placeholderTextColor={isDark ? '#94a3b8' : '#64748b'}
                       value={chatSearchQuery}
                       onChangeText={setChatSearchQuery}
                       autoFocus
-                      style={{ flex: 1, color: isDark ? '#fff' : '#000', fontSize: 16, marginLeft: 10 }}
+                      style={{ flex: 1, color: isDark ? '#fff' : '#1f2937', fontSize: 16, marginLeft: 10 }}
                     />
                   </>
                 ) : (
                   <>
-                    <Search color={isDark ? '#fff' : '#000'} size={22} />
+                    <Search color={isDark ? '#fff' : '#1f2937'} size={22} />
                     <Text style={[styles.dropdownTitle, isDark ? styles.txtLight : styles.txtDark]}>Tin nhắn</Text>
                     <TouchableOpacity onPress={() => setChatSearchMode(true)}>
-                      <Text style={{ color: '#1877f2', fontWeight: '600' }}>Tìm người</Text>
+                      <Text style={{ color: '#3b82f6', fontWeight: '600' }}>Tìm người</Text>
                     </TouchableOpacity>
                   </>
                 )}
@@ -473,10 +562,10 @@ export default function VpanDashboardMerged() {
               <ScrollView style={styles.dropdownScroll}>
                 {chatSearchMode ? (
                   chatSearchLoading ? (
-                    <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>Đang tìm...</Text>
+                    <Text style={[styles.emptyText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Đang tìm...</Text>
                   ) : searchResultsUsers?.length > 0 ? (
                     searchResultsUsers.map(u => (
-                      <TouchableOpacity key={u.id} style={styles.messageItem} onPress={() => openChat(u)}>
+                      <TouchableOpacity key={u.id} style={[styles.messageItem, isDark ? styles.messageItemDark : styles.messageItemLight]} onPress={() => openChat(u)}>
                         <View style={{ position: 'relative' }}>
                           <Image source={getSafeAvatar(u)} style={styles.messageAvatar} />
                           {onlineUsers.includes(u.id) && <View style={styles.onlineDot} />}
@@ -488,13 +577,13 @@ export default function VpanDashboardMerged() {
                       </TouchableOpacity>
                     ))
                   ) : (
-                    <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>Không tìm thấy</Text>
+                    <Text style={[styles.emptyText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Không tìm thấy</Text>
                   )
                 ) : recentChatsLoading ? (
-                  <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>Đang tải tin nhắn...</Text>
+                  <Text style={[styles.emptyText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Đang tải tin nhắn...</Text>
                 ) : recentChats?.length > 0 ? (
                   recentChats.map((chat: any) => (
-                    <TouchableOpacity key={chat.user.id} style={styles.messageItem} onPress={() => openChat(chat.user)}>
+                    <TouchableOpacity key={chat.user.id} style={[styles.messageItem, isDark ? styles.messageItemDark : styles.messageItemLight]} onPress={() => openChat(chat.user)}>
                       <View style={{ position: 'relative' }}>
                         <Image source={chat.avatar} style={styles.messageAvatar} />
                         {onlineUsers.includes(chat.user.id) && <View style={styles.onlineDot} />}
@@ -515,11 +604,11 @@ export default function VpanDashboardMerged() {
                     </TouchableOpacity>
                   ))
                 ) : (
-                  <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>Chưa có tin nhắn nào</Text>
+                  <Text style={[styles.emptyText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Chưa có tin nhắn nào</Text>
                 )}
               </ScrollView>
 
-              <TouchableOpacity style={styles.seeAllButton}>
+              <TouchableOpacity style={[styles.seeAllButton, isDark ? styles.seeAllButtonDark : styles.seeAllButtonLight]}>
                 <Text style={styles.seeAllText}>Xem tất cả trong Messenger</Text>
               </TouchableOpacity>
             </View>
@@ -529,21 +618,25 @@ export default function VpanDashboardMerged() {
         {/* NOTIFICATIONS DROPDOWN */}
         {showNotifications && (
           <View pointerEvents="box-none" style={[styles.notificationDropdown, isDark ? styles.menuDark : styles.menuLight]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10 }}>
+            <View style={[styles.dropdownHeader, isDark ? styles.borderDark : styles.borderLight]}>
               <Text style={[styles.dropdownTitle, isDark ? styles.txtLight : styles.txtDark]}>Thông báo</Text>
-              {unreadCount > 0 && <Text style={{ color: '#1877f2', fontSize: 13 }}>{unreadCount} mới</Text>}
+              {unreadCount > 0 && <Text style={{ color: '#3b82f6', fontSize: 13 }}>{unreadCount} mới</Text>}
             </View>
 
             <ScrollView style={styles.dropdownScroll}>
               {notifications?.length === 0 ? (
-                <Text style={{ textAlign: 'center', padding: 30, color: '#888' }}>Chưa có thông báo</Text>
+                <Text style={[styles.emptyText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Chưa có thông báo</Text>
               ) : (
                 notifications.map(notif => (
                   <TouchableOpacity
                     key={notif._id || notif.id}
-                    style={[styles.notificationItem, !notif.read && { backgroundColor: 'rgba(59,130,246,0.08)' }]}
+                    style={[
+                      styles.notificationItem,
+                      isDark ? styles.notificationItemDark : styles.notificationItemLight,
+                      !notif.read && (isDark ? styles.unreadDark : styles.unreadLight)
+                    ]}
                   >
-                    <Bell color="#1877f2" size={20} style={{ marginRight: 12 }} />
+                    <Bell color="#3b82f6" size={20} style={{ marginRight: 12 }} />
                     <View style={styles.notificationContent}>
                       <Text style={[styles.notificationText, isDark ? styles.txtLight : styles.txtDark]}>
                         {notif.message}
@@ -557,7 +650,7 @@ export default function VpanDashboardMerged() {
               )}
             </ScrollView>
 
-            <TouchableOpacity style={styles.seeAllButton} onPress={() => router.push('/notifications' as any)}>
+            <TouchableOpacity style={[styles.seeAllButton, isDark ? styles.seeAllButtonDark : styles.seeAllButtonLight]} onPress={() => router.push('/notifications' as any)}>
               <Text style={styles.seeAllText}>Xem tất cả thông báo</Text>
             </TouchableOpacity>
           </View>
@@ -566,27 +659,56 @@ export default function VpanDashboardMerged() {
         {/* AVATAR MENU */}
         {avatarOpen && (
           <View pointerEvents="box-none" style={[styles.avatarMenu, isDark ? styles.menuDark : styles.menuLight]}>
-            <View style={styles.avatarMenuHeader}>
+            <View style={[styles.avatarMenuHeader, isDark ? styles.borderDark : styles.borderLight]}>
               <Image source={getSafeAvatar(user as any)} style={styles.menuAvatar} />
-              <View style={{ marginLeft: 10 }}>
+              <View style={{ marginLeft: 10, flex: 1 }}>
                 <Text style={[styles.menuName, isDark ? styles.txtLight : styles.txtDark]}>{user.name}</Text>
                 <Text style={[styles.menuRole, isDark ? styles.txtLightDim : styles.txtDarkDim]}>{user.email}</Text>
+
+                {/* 👇 HIỂN THỊ PLAN & NGÀY HẾT HẠN */}
+                {fullUser?.plan && fullUser.plan !== 'free' && (
+                  <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Crown color="#f59e0b" size={16} style={{ marginRight: 6 }} />
+                    <Text style={{ color: '#f59e0b', fontWeight: '700', fontSize: 14 }}>
+                      {fullUser.plan === 'pro' && 'Gói Pro'}
+                      {fullUser.plan === 'premium' && 'Gói Premium'}
+                      {fullUser.plan === 'master' && 'Gói Master'}
+                      {fullUser.plan === 'lifetime' && 'Gói Lifetime'}
+                    </Text>
+
+                    {fullUser.planExpiresAt && fullUser.plan !== 'lifetime' && (
+                      <>
+                        <Text style={{ color: '#94a3b8', fontSize: 12, marginHorizontal: 8 }}>•</Text>
+                        <Text style={{ color: '#94a3b8', fontSize: 12 }}>
+                          Hết hạn: {new Date(fullUser.planExpiresAt).toLocaleDateString('vi-VN')}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                )}
+
+                {/* Nếu là free thì hiện nhẹ nhàng */}
+                {(!fullUser?.plan || fullUser.plan === 'free') && (
+                  <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+                    Tài khoản miễn phí
+                  </Text>
+                )}
               </View>
             </View>
 
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setAvatarOpen(false); router.push('/profile/edit'); }}>
-              <Edit2 color={isDark ? '#fff' : '#2b2b2b'} width={18} height={18} />
+            <TouchableOpacity style={[styles.menuItem, isDark ? styles.menuItemDark : styles.menuItemLight]} onPress={() => { setAvatarOpen(false); router.push('/profile/edit'); }}>
+              <Edit2 color={isDark ? '#fff' : '#1f2937'} width={18} height={18} />
               <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>Chỉnh sửa hồ sơ</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setAvatarOpen(false); router.push('/(auth)/(tabs)/MyFlashcardSetsScreen' as any); }}>
-              <BookOpen color={isDark ? '#fff' : '#2b2b2b'} width={18} height={18} />
+            <TouchableOpacity style={[styles.menuItem, isDark ? styles.menuItemDark : styles.menuItemLight]} onPress={() => { setAvatarOpen(false); router.push('/(auth)/(tabs)/MyFlashcardSetsScreen' as any); }}>
+              <BookOpen color={isDark ? '#fff' : '#1f2937'} width={18} height={18} />
               <Text style={[styles.menuText, isDark ? styles.txtLight : styles.txtDark]}>Quản lý flashcard</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: 'rgba(251, 191, 36, 0.12)' }]}
-              onPress={() => { setAvatarOpen(false); router.push('/upgrade' as any); }}
+              style={[styles.menuItem, styles.premiumItem]}
+              onPress={() => { setAvatarOpen(false); router.push('/upgrade/upgrade' as any); }}
             >
               <View style={{ backgroundColor: '#f59e0b', padding: 6, borderRadius: 8, marginRight: 10 }}>
                 <Crown color="#fff" width={16} height={16} />
@@ -598,31 +720,31 @@ export default function VpanDashboardMerged() {
               <ArrowRight color="#f59e0b" width={18} height={18} />
             </TouchableOpacity>
 
-            <View style={{ height: 1, backgroundColor: isDark ? '#374151' : '#e5e7eb', marginVertical: 6 }} />
+            <View style={[styles.divider, isDark ? styles.dividerDark : styles.dividerLight]} />
 
-            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-              <LogOut color="#e11d48" width={18} height={18} />
-              <Text style={[styles.menuText, { color: '#e11d48' }]}>Đăng xuất</Text>
+            <TouchableOpacity style={[styles.menuItem, isDark ? styles.menuItemDark : styles.menuItemLight]} onPress={handleLogout}>
+              <LogOut color="#ef4444" width={18} height={18} />
+              <Text style={[styles.menuText, { color: '#ef4444' }]}>Đăng xuất</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {/* MAIN CONTENT */}
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
-          {/* Search results (Jisho) */}
+          {/* Search results */}
           {results.length > 0 && (
-            <View style={styles.card}>
+            <View style={[styles.card, isDark ? styles.cardDark : styles.cardLight]}>
               {results.map((item, i) => (
-                <View key={i} style={{ paddingVertical: 14, borderBottomWidth: i === results.length - 1 ? 0 : 1, borderColor: '#334155' }}>
+                <View key={i} style={[styles.resultItem, i !== results.length - 1 && (isDark ? styles.borderDark : styles.borderLight)]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 22, fontWeight: 'bold', color: isDark ? '#fff' : '#000' }}>
+                      <Text style={[styles.wordText, isDark ? styles.txtLight : styles.txtDark]}>
                         {item.word || item.reading}
                       </Text>
                       {item.word && item.reading && (
-                        <Text style={{ fontSize: 16, color: '#3b82f6', marginVertical: 4 }}>【{item.reading}】</Text>
+                        <Text style={styles.readingText}>【{item.reading}】</Text>
                       )}
-                      <Text style={{ fontSize: 15, color: isDark ? '#cbd5e1' : '#475569' }}>{item.meanings}</Text>
+                      <Text style={[styles.meaningText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>{item.meanings}</Text>
                     </View>
                     <TouchableOpacity onPress={() => playPronunciation(item.word || item.reading)}>
                       <Mic2 color="#3b82f6" size={36} />
@@ -633,82 +755,317 @@ export default function VpanDashboardMerged() {
             </View>
           )}
 
-          {/* Suggestions */}
+          {/* Suggestions + Quick Actions */}
           {results.length === 0 && search.length === 0 && (
-            <View style={styles.card}>
-              <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12, color: isDark ? '#fff' : '#000' }}>
-                Gợi ý từ phổ biến
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                {['食べる', '学校', '友達', 'ありがとう', 'おはよう'].map(w => (
-                  <TouchableOpacity key={w} onPress={() => { setSearch(w); handleSearch(); }} style={{ backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 }}>
-                    <Text style={{ color: '#fff', fontWeight: '600' }}>{w}</Text>
+            <>
+              {/* Gợi ý từ phổ biến */}
+
+
+              {/* Quick Actions - ngay dưới gợi ý */}
+              <View style={{ marginTop: 0, marginBottom: 16 }}>
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    isDark ? styles.txtLight : styles.txtDark,
+                    { marginBottom: 12 },
+                  ]}
+                >
+                  Tính năng nhanh
+                </Text>
+
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  {/* Shadowing */}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    style={{ flex: 1 }}
+                    onPress={() => router.push('/shadowing/shadowTopic' as any)}
+                  >
+                    <LinearGradient
+                      colors={['#38bdf8', '#6366f1']} // xanh -> tím
+                      start={{ x: 1, y: 0 }}
+                      end={{ x: 0, y: 1 }}
+                      style={{
+                        borderRadius: 18,
+                        padding: 20,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: 130,
+                        shadowColor: '#6366f1',
+                        shadowOffset: { width: 0, height: 8 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 12,
+                        elevation: 6,
+                      }}
+                    >
+                      <Mic2 color="#fff" size={42} />
+                      <Text
+                        style={{
+                          color: '#fff',
+                          fontWeight: '800',
+                          marginTop: 14,
+                          fontSize: 16,
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        Shadowing
+                      </Text>
+                    </LinearGradient>
                   </TouchableOpacity>
-                ))}
+
+                  {/* Sách Song Ngữ */}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    style={{ flex: 1 }}
+                    onPress={() => router.push('/books/list' as any)}
+                  >
+                    <LinearGradient
+                      colors={['#a78bfa', '#ec4899']} // tím -> hồng
+                      start={{ x: 1, y: 0 }}
+                      end={{ x: 0, y: 1 }}
+                      style={{
+                        borderRadius: 18,
+                        padding: 20,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: 130,
+                        shadowColor: '#ec4899',
+                        shadowOffset: { width: 0, height: 8 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 12,
+                        elevation: 6,
+                      }}
+                    >
+                      <BookOpen color="#fff" size={42} />
+                      <Text
+                        style={{
+                          color: '#fff',
+                          fontWeight: '800',
+                          marginTop: 14,
+                          fontSize: 16,
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        Sách Song Ngữ
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
+            </>
           )}
 
-          {/* Quick Actions */}
-          <View style={styles.quickActionsGrid}>
-            {QUICK_ACTIONS.map((action, i) => (
-              <TouchableOpacity key={i} style={[styles.actionBtn, { backgroundColor: action.bg }]} onPress={() => {
-                if (action.title === 'Flashcard') router.push('/FlashSet' as any);
-                else if (action.title === 'Luyện Thi') router.push('/(quiz)' as any);
-                else if (action.title === 'Shadowing') router.push('/shadowTopic' as any);
-                else if (action.title === 'Sách Song Ngữ') router.push('/books/list' as any);
-              }}>
-                <action.icon color={action.color} size={30} />
-                <Text style={{ color: action.color, fontWeight: '800', marginTop: 8 }}>{action.title}</Text>
+          {/* ==================== BỘ FLASHCARD CỦA TÔI ==================== */}
+          <View style={[styles.card, isDark ? styles.cardDark : styles.cardLight]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={[styles.sectionTitle, isDark ? styles.txtLight : styles.txtDark]}>
+                Bộ flashcard của tôi
+              </Text>
+              <TouchableOpacity onPress={createNewSet} style={styles.createButton}>
+                <Plus color="#fff" size={20} />
+                <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 6 }}>Tạo mới</Text>
               </TouchableOpacity>
-            ))}
+            </View>
+
+            {loadingMySets ? (
+              <Text style={[styles.loadingText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Đang tải...</Text>
+            ) : myFlashcardSets.length === 0 ? (
+              <Text style={[styles.emptyText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Bạn chưa có bộ flashcard nào</Text>
+            ) : (
+              <>
+                {paginatedSets.map((set: any) => (
+                  <TouchableOpacity
+                    key={set._id}
+                    style={{
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f1f5f9',
+                      borderRadius: 16,
+                      padding: 16,
+                      marginBottom: 12,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0',
+                    }}
+                    onPress={() => openMySet(set._id)}
+                  >
+                    <Layers color="#3b82f6" size={44} style={{ marginRight: 16 }} />
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.setTitle, isDark ? styles.txtLight : styles.txtDark, { fontSize: 17, marginBottom: 4 }]}>
+                        {set.title}
+                      </Text>
+                      <Text style={[styles.messagePreview, isDark ? styles.txtLightDim : styles.txtDarkDim, { fontSize: 14, marginBottom: 6 }]}>
+                        {set.description || 'Không có mô tả'}
+                      </Text>
+                      <Text style={{ fontSize: 13, color: '#3b82f6', fontWeight: '600' }}>
+                        Cấp độ: {set.level || 'Undefined'}
+                      </Text>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[styles.cardCountText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
+                        {set.cardCount || set.flashcards?.length || 0} thẻ
+                      </Text>
+                      <Text style={[styles.messageTime, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
+                        {new Date(set.updatedAt || set.createdAt).toLocaleDateString('vi-VN')}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+
+                {totalPages > 1 && (
+                  <View style={styles.pagination}>
+                    <TouchableOpacity
+                      onPress={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      style={[styles.pageBtn, currentPage === 1 && styles.disabledBtn]}
+                    >
+                      <Text style={[styles.pageText, isDark ? styles.txtLight : styles.txtDark]}>‹</Text>
+                    </TouchableOpacity>
+
+                    <Text style={[styles.pageInfo, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
+                      Trang {currentPage} / {totalPages}
+                    </Text>
+
+                    <TouchableOpacity
+                      onPress={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      style={[styles.pageBtn, currentPage === totalPages && styles.disabledBtn]}
+                    >
+                      <Text style={[styles.pageText, isDark ? styles.txtLight : styles.txtDark]}>›</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
           </View>
 
-          <View style={styles.card}>
-            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12, color: isDark ? '#fff' : '#000' }}>
+          {/* ==================== FLASHCARDS BẠN CÓ THỂ LÀM (PUBLIC) ==================== */}
+          <View style={[styles.card, isDark ? styles.cardDark : styles.cardLight]}>
+            <Text style={[styles.sectionTitle, isDark ? styles.txtLight : styles.txtDark]}>
               Flashcards bạn có thể làm
             </Text>
-            {flashcards.map(f => (
-              <Text key={f.id} style={{ color: isDark ? '#fff' : '#000', marginVertical: 4 }}>• {f.title}</Text>
-            ))}
-          </View>
-        </ScrollView>
 
-        {/* Logout Modal */}
-        <Modal transparent visible={logoutModalVisible} animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: isDark ? '#1e293b' : '#fff' }]}>
-              <Text style={{ fontSize: 20, fontWeight: 'bold', color: isDark ? '#fff' : '#000' }}>Đăng xuất</Text>
-              <Text style={{ marginVertical: 16, textAlign: 'center', color: isDark ? '#cbd5e1' : '#666' }}>
-                Bạn có chắc muốn thoát?
-              </Text>
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity style={{ flex: 1, padding: 14, backgroundColor: '#666', borderRadius: 12 }} onPress={() => setLogoutModalVisible(false)}>
-                  <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>Hủy</Text>
+            {loadingPublicSets ? (
+              <Text style={[styles.loadingText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Đang tải...</Text>
+            ) : publicFlashcardSets.length === 0 ? (
+              <Text style={[styles.emptyText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>Chưa có bộ công khai nào</Text>
+            ) : (
+              <>
+                {/* Phân trang cho public */}
+                {(() => {
+                  const publicTotalPages = Math.ceil(publicFlashcardSets.length / ITEMS_PER_PAGE);
+                  const paginatedPublicSets = publicFlashcardSets.slice(
+                    (publicPage - 1) * ITEMS_PER_PAGE,
+                    publicPage * ITEMS_PER_PAGE
+                  );
+
+                  return (
+                    <>
+                      {paginatedPublicSets.map((set: any) => (
+                        <TouchableOpacity
+                          key={set._id}
+                          style={{
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f1f5f9',
+                            borderRadius: 16,
+                            padding: 16,
+                            marginBottom: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            borderWidth: 1,
+                            borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0',
+                          }}
+                          onPress={() => openPublicSet(set._id)}
+                        >
+                          <Layers color="#8b5cf6" size={44} style={{ marginRight: 16 }} />
+
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.setTitle, isDark ? styles.txtLight : styles.txtDark, { fontSize: 17, marginBottom: 4 }]}>
+                              {set.title}
+                            </Text>
+                            <Text style={[styles.messagePreview, isDark ? styles.txtLightDim : styles.txtDarkDim, { fontSize: 14, marginBottom: 6 }]}>
+                              {set.description || 'Không có mô tả'}
+                            </Text>
+                            <Text style={{ fontSize: 13, color: '#8b5cf6', fontWeight: '600' }}>
+                              Cấp độ: {set.level || 'not set'}
+                            </Text>
+                          </View>
+
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={[styles.cardCountText, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
+                              {set.cardCount || set.flashcards?.length || 0} thẻ
+                            </Text>
+                            <Text style={[styles.messageTime, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
+                              {new Date(set.updatedAt || set.createdAt).toLocaleDateString('vi-VN')}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+
+                      {publicTotalPages > 1 && (
+                        <View style={styles.pagination}>
+                          <TouchableOpacity
+                            onPress={() => setPublicPage(p => Math.max(1, p - 1))}
+                            disabled={publicPage === 1}
+                            style={[styles.pageBtn, publicPage === 1 && styles.disabledBtn]}
+                          >
+                            <Text style={[styles.pageText, isDark ? styles.txtLight : styles.txtDark]}>‹</Text>
+                          </TouchableOpacity>
+
+                          <Text style={[styles.pageInfo, isDark ? styles.txtLightDim : styles.txtDarkDim]}>
+                            Trang {publicPage} / {publicTotalPages}
+                          </Text>
+
+                          <TouchableOpacity
+                            onPress={() => setPublicPage(p => Math.min(publicTotalPages, p + 1))}
+                            disabled={publicPage === publicTotalPages}
+                            style={[styles.pageBtn, publicPage === publicTotalPages && styles.disabledBtn]}
+                          >
+                            <Text style={[styles.pageText, isDark ? styles.txtLight : styles.txtDark]}>›</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </>
+                  );
+                })()}
+              </>
+            )}
+          </View>
+          {/* Logout Modal */}
+          <Modal transparent visible={logoutModalVisible} animationType="fade">
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, { backgroundColor: isDark ? '#1e293b' : '#fff' }]}>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: isDark ? '#fff' : '#000' }}>Đăng xuất</Text>
+                <Text style={{ marginVertical: 16, textAlign: 'center', color: isDark ? '#cbd5e1' : '#666' }}>
+                  Bạn có chắc muốn thoát?
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <TouchableOpacity style={{ flex: 1, padding: 14, backgroundColor: '#666', borderRadius: 12 }} onPress={() => setLogoutModalVisible(false)}>
+                    <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>Hủy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={{ flex: 1, padding: 14, backgroundColor: '#e11d48', borderRadius: 12 }} onPress={confirmLogout}>
+                    <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>Đăng xuất</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Promo modal */}
+          <Modal visible={showPromo} transparent animationType="fade" onRequestClose={() => setShowPromo(false)}>
+            <View style={styles.promoOverlay}>
+              <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setShowPromo(false)} />
+              <View style={styles.cardWrapper}>
+                <TouchableOpacity onPress={onPromoPress} activeOpacity={0.9} style={styles.imageBtn}>
+                  <Image source={PROMO_IMAGE} style={styles.promoImage} resizeMode="contain" />
                 </TouchableOpacity>
-                <TouchableOpacity style={{ flex: 1, padding: 14, backgroundColor: '#e11d48', borderRadius: 12 }} onPress={confirmLogout}>
-                  <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '600' }}>Đăng xuất</Text>
+
+                <TouchableOpacity onPress={() => setShowPromo(false)} style={styles.closeBtn}>
+                  <Text style={styles.closeText}>✕</Text>
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </Modal>
-
-        {/* Promo modal */}
-        <Modal visible={showPromo} transparent animationType="fade" onRequestClose={() => setShowPromo(false)}>
-          <View style={styles.promoOverlay}>
-            <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setShowPromo(false)} />
-            <View style={styles.cardWrapper}>
-              <TouchableOpacity onPress={onPromoPress} activeOpacity={0.9} style={styles.imageBtn}>
-                <Image source={PROMO_IMAGE} style={styles.promoImage} resizeMode="contain" />
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => setShowPromo(false)} style={styles.closeBtn}>
-                <Text style={styles.closeText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
+          </Modal>
+        </ScrollView>
 
       </SafeAreaView>
     </TouchableWithoutFeedback>
@@ -726,150 +1083,4 @@ const formatTimeAgo = (date: Date): string => {
   if (diffInSeconds < 172800) return 'Hôm qua';
   if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} ngày trước`;
   return 'Lâu lắm rồi';
-};
-
-// ==================== STYLES (merge of both) ====================
-const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  lightBg: { backgroundColor: '#F3F7FB' },
-  darkBg: { backgroundColor: '#0b1220' },
-
-  badge: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: '#e11d48',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 5,
-  },
-  badgeText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
-
-  header: { height: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, zIndex: 100 },
-  headerLight: { backgroundColor: 'rgba(255,255,255,0.72)', borderBottomColor: '#e6e6e6', borderBottomWidth: 1 },
-  headerDark: { backgroundColor: 'rgba(4,6,11,0.64)', borderBottomColor: 'rgba(255,255,255,0.06)', borderBottomWidth: 1 },
-
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  iconCircle: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(200,200,200,0.08)' },
-
-  avatarBtn: { marginLeft: 6, borderRadius: 21, overflow: 'hidden', borderWidth: 2, borderColor: '#3b82f6' },
-  avatar: { width: 42, height: 42 },
-
-  // avatar menu
-  avatarMenu: { position: 'absolute', top: 64, right: 14, width: 240, borderRadius: 12, paddingVertical: 8, zIndex: 200, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 18, elevation: 10 },
-  menuLight: { backgroundColor: '#fff', borderColor: '#e6e6e6', borderWidth: 1 },
-  menuDark: { backgroundColor: '#1e293b', borderColor: 'rgba(255,255,255,0.06)', borderWidth: 1 },
-  avatarMenuHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  menuAvatar: { width: 44, height: 44, borderRadius: 22 },
-  menuName: { fontSize: 16, fontWeight: '700' },
-  menuRole: { fontSize: 13 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
-  menuText: { fontSize: 15 },
-
-  // dropdowns
-  messageDropdown: {
-    position: 'absolute',
-    top: 68,
-    right: 12,
-    maxWidth: 420,
-    height: 480,
-    alignSelf: 'center',
-    borderRadius: 16,
-    zIndex: 1000,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 20,
-    overflow: 'hidden',
-  },
-  notificationDropdown: { position: 'absolute', top: 64, right: 60, width: 360, height: 450, borderRadius: 12, zIndex: 200, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, elevation: 10, overflow: 'hidden', paddingTop: 10 },
-  dropdownTitle: { fontSize: 20, fontWeight: '800', paddingHorizontal: 15, marginBottom: 5 },
-  dropdownScroll: { paddingHorizontal: 8 },
-
-  seeAllButton: { paddingVertical: 10, backgroundColor: '#f0f2f5', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
-  seeAllText: { color: '#1877f2', fontWeight: '600', fontSize: 15 },
-
-  messageItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, marginVertical: 2 },
-  messageAvatar: { width: 45, height: 45, borderRadius: 22.5, marginRight: 10 },
-  messageContent: { flex: 1, justifyContent: 'center' },
-  messageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  messageName: { fontSize: 15, fontWeight: '700' },
-  messagePreview: { fontSize: 13 },
-  messageTime: { fontSize: 12, marginLeft: 10 },
-
-  notificationItem: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, marginVertical: 2, backgroundColor: 'transparent' },
-  notificationContent: { flex: 1, justifyContent: 'center' },
-  notificationText: { fontSize: 14 },
-
-  contentFullWidth: { padding: 16, paddingBottom: 60, flexGrow: 1 },
-
-  quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20 },
-  actionBtn: { width: '48%', aspectRatio: 3.5, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-
-  card: { backgroundColor: '#1e293b', borderRadius: 16, padding: 16, marginBottom: 16 },
-
-  txtDark: { color: '#111827' },
-  txtLight: { color: '#f8fafc' },
-  txtDarkDim: { color: '#6b7280' },
-  txtLightDim: { color: '#9ca3af' },
-
-  footer: { paddingVertical: 14, alignItems: 'center' },
-  footerText: { fontSize: 12 },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
-  onlineDot: { position: 'absolute', bottom: 2, right: 2, width: 14, height: 14, backgroundColor: '#4ade80', borderRadius: 7, borderWidth: 3, borderColor: '#0b1220' },
-  modalContent: { width: 300, borderRadius: 16, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 20 },
-
-  // PROMO styles
-  promoOverlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 3000,
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  cardWrapper: {
-    width: '88%',
-    maxWidth: 520,
-    borderRadius: 16,
-    overflow: 'visible',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imageBtn: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  promoImage: {
-    width: '100%',
-    height: undefined,
-    aspectRatio: 16 / 9,
-  },
-  closeBtn: {
-    position: 'absolute',
-    top: -10,
-    right: -10,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 8,
-  },
-  closeText: { fontSize: 16, fontWeight: '700' },
-});
+}

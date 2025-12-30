@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+  getPublicFlashcardSets,
   getAllFlashcardSets,
   getFlashcardSetById,
   createFlashcardSet,
@@ -9,30 +10,43 @@ const {
   getAllFlashcardSetsAdmin,
   adminUpdateFlashcardSet,
   adminDeleteFlashcardSet,
+  getPublicFlashcardsForSet,
+  getQuizFlashcards,
+  importFlashcardsFromExcel
 } = require('../controllers/flashcardSetController');
+
 const {
   getFlashcardsForSet,
   addFlashcardToSet,
   removeFlashcardFromSet,
 } = require('../controllers/flashcardController');
+
 const { protect, admin } = require('../middleware/authMiddleware');
 
-// Root route: GET and POST for flashcard sets
+// === PUBLIC ROUTES (PHẢI ĐẶT TRƯỚC CÁC ROUTE CÓ PARAM) ===
+router.get('/public', getPublicFlashcardSets);
+router.get('/public/:setId/flashcards', getPublicFlashcardsForSet);
+
+// === QUIZ ROUTE (cần protect vì private có thể cần token) ===
+router.get('/:id/quiz-flashcards', protect, getQuizFlashcards);
+
+// === PRIVATE ROUTES ===
 router.get('/', protect, getAllFlashcardSets);
 router.post('/', protect, createFlashcardSet);
 
-// Flashcard association routes (must come before /:id routes)
 router.get('/:id/flashcards', protect, getFlashcardsForSet);
 router.post('/:id/flashcards', protect, addFlashcardToSet);
 router.delete('/:id/flashcards/:flashcardId', protect, removeFlashcardFromSet);
 
-// Single FlashcardSet CRUD routes
 router.get('/:id', protect, getFlashcardSetById);
 router.put('/:id', protect, updateFlashcardSet);
 router.delete('/:id', protect, deleteFlashcardSet);
 
-router.get('/admin/all', protect, admin, getAllFlashcardSetsAdmin); // admin middleware kiểm tra role
-// Admin có thể sửa/xóa bất kỳ bộ nào
+// === ADMIN ROUTES ===
+router.get('/admin/all', protect, admin, getAllFlashcardSetsAdmin);
 router.put('/admin/:id', protect, admin, adminUpdateFlashcardSet);
 router.delete('/admin/:id', protect, admin, adminDeleteFlashcardSet);
+
+// routes/flashcardSets.js
+router.post('/:setId/import-excel', protect, importFlashcardsFromExcel);
 module.exports = router;

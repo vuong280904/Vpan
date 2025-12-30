@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 const getBaseUrl = () => {
   if (Platform.OS === 'android') {
     // Android emulator
-    return 'http://10.0.2.2:';
+    return 'http://172.20.10.3:';
   } else if (Platform.OS === 'ios') {
     // iOS simulator
     return 'http://10.249.2.233:';

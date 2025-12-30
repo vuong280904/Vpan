@@ -1,80 +1,59 @@
-// import { Platform } from 'react-native';
-// export async function searchJapaneseWord(keyword) {
-//   if (!keyword || !keyword.trim()) return [];
-
-//   const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.1.9";
-
-//   try {
-//     const response = await fetch(
-//       `http://192.168.2.7:/api/jishoApi/search?keyword=${encodeURIComponent(keyword)}`
-//     );
-
-//     if (!response.ok) {
-//       console.error('Server trả về lỗi:', response.status);
-//       return [];
-//     }
-
-//     const data = await response.json();
-//     return data.data || data; // tùy server trả về
-//   } catch (err) {
-//     console.error('Lỗi khi gọi server Node.js:', err);
-//     return [];
-//   }
-// }
-
-// // New: return server audio endpoint URL (no fetching)
-// export async function getPronunciationUrl(text) {
-//   if (!text || !text.trim()) return '';
-
-//   const LOCALHOST = Platform.OS === "android" ? "10.0.2.2" : "192.168.2.6";
-
-
-//   // Return the server endpoint that proxies the TTS audio.
-//   // The client can use this URL directly with Audio.Sound.createAsync({ uri }) or with HTML Audio on web
-//   return `http://192.168.2.7:/api/jishoApi/audio?text=${encodeURIComponent(text)}`;
-// }
 // app/utils/jishoApi.js
 
-// Nếu bạn dùng downloadAsync ở nơi khác, import legacy nếu muốn:
-// import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 
-const BASE_HOST = 'localhost'; // sửa nếu IP server khác
-const BASE_PORT = 5000;
-const BASE_URL = `http://${BASE_HOST}:${BASE_PORT}`;
+// Cấu hình server
+const PORT = 5000;
+const MOBILE_HOST = '172.20.10.3'; // ← Thay đổi IP này khi bạn chuyển sang mạng WiFi khác
+
+// Dùng Platform.select để tránh lỗi server-side rendering trên web
+const BASE_URL = Platform.select({
+  web: `http://localhost:${PORT}`,
+  default: `http://${MOBILE_HOST}:${PORT}`,
+});
 
 /**
- * Tìm từ tiếng Nhật
- * @param {string} keyword
- * @returns {Promise<any[]>}
+ * Tìm kiếm từ tiếng Nhật qua server proxy
+ * @param {string} keyword - Từ cần tìm
+ * @returns {Promise<any[]>} Mảng kết quả hoặc []
  */
 export async function searchJapaneseWord(keyword) {
   if (!keyword || !keyword.trim()) return [];
 
   try {
-    const url = `${BASE_URL}/api/jishoApi/search?keyword=${encodeURIComponent(keyword)}`;
-    const response = await fetch(url);
+    const url = `${BASE_URL}/api/jishoApi/search?keyword=${encodeURIComponent(keyword.trim())}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      // Tùy chọn: thêm timeout nếu cần
+      // signal: AbortSignal.timeout(10000),
+    });
 
     if (!response.ok) {
-      console.error('Server trả về lỗi:', response.status, url);
+      console.error('Server trả về lỗi:', response.status, response.statusText);
+      console.error('URL gọi:', url);
       return [];
     }
 
     const data = await response.json();
-    return data.data || data;
+    return Array.isArray(data) ? data : data.data || data.results || [];
   } catch (err) {
-    console.error('Lỗi khi gọi server Node.js:', err);
+    console.error('Lỗi kết nối đến server Jisho proxy:', err);
     return [];
   }
 }
 
 /**
- * Trả về URL endpoint audio (client sẽ gọi url này)
- * @param {string} text
- * @returns {Promise<string>}
+ * Trả về URL để phát âm (TTS) từ server proxy
+ * Client sẽ dùng URL này trực tiếp với expo-av Audio.Sound hoặc <audio> trên web
+ * @param {string} text - Văn bản cần phát âm (tiếng Nhật)
+ * @returns {string} URL endpoint audio
  */
-export async function getPronunciationUrl(text) {
+export function getPronunciationUrl(text) {
   if (!text || !text.trim()) return '';
 
-  // Chú ý: server phải expose route tương ứng: /api/jishoApi/audio
-  return `${BASE_URL}/api/jishoApi/audio?text=${encodeURIComponent(text)}`;
+  return `${BASE_URL}/api/jishoApi/audio?text=${encodeURIComponent(text.trim())}`;
 }
+
+// Optional: Export BASE_URL để dùng ở nơi khác nếu cần debug
+// export { BASE_URL };

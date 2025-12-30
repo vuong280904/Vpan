@@ -9,7 +9,7 @@ import librosa
 import pickle
 from shadowModel import ShadowNet
 from transformers import AutoTokenizer, Wav2Vec2Processor
-
+from model_loader import download_if_not_exists
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SAMPLE_RATE = 16000
 
@@ -17,8 +17,7 @@ SAMPLE_RATE = 16000
 # Đường dẫn model/labels
 # =======================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "shadow_model.pt")
-LABEL_PATH = os.path.join(BASE_DIR, "error_labels.pkl")
+MODEL_PATH, LABEL_PATH = download_if_not_exists()
 
 # =======================
 # Load processor & tokenizer

@@ -1,4 +1,5 @@
 // app/(books)/list.tsx
+import { Ionicons } from '@expo/vector-icons'; // ← Thêm icon đẹp
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -11,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import api from '../../../utils/api'; // ← ĐÚNG ĐƯỜNG DẪN TỚI FILE BÊN TRÊN
+import api from '../../../utils/api';
 
 type Book = {
   id: string;
@@ -29,7 +30,7 @@ export default function BooksList() {
   const fetchBooks = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/api/books'); // ← ĐÃ TỰ ĐỘNG CHỌN localhost HOẶC 192.168.2.6
+      const response = await api.get('/api/books');
       setBooks(response.data);
     } catch (error: any) {
       Alert.alert('Lỗi', 'Không thể tải danh sách sách. Vui lòng kiểm tra kết nối.');
@@ -54,10 +55,23 @@ export default function BooksList() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Sách Song Ngữ Nhật - Việt</Text>
-      <ScrollView style={styles.list}>
+      {/* ==================== HEADER VỚI NÚT BACK ==================== */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.replace('/')}  // ← Đổi từ router.back() thành router.replace('/')
+          style={styles.backButton}
+        >
+          <Ionicons name="arrow-back" size={28} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.title}>Sách Song Ngữ Nhật - Việt</Text>
+        {/* Để cân đối, bạn có thể thêm một View rỗng bên phải nếu muốn */}
+        <View style={{ width: 48 }} />
+      </View>
+
+      {/* ==================== DANH SÁCH SÁCH ==================== */}
+      <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
         {books.length === 0 ? (
-          <Text style={styles.emptyText}></Text>
+          <Text style={styles.emptyText}>Không có sách nào</Text>
         ) : (
           books.map(book => (
             <TouchableOpacity
@@ -69,7 +83,7 @@ export default function BooksList() {
                 {book.coverImage ? (
                   <Image source={{ uri: book.coverImage }} style={styles.coverImage} resizeMode="cover" />
                 ) : (
-                  <Text style={styles.bookEmoji}>Book</Text>
+                  <Text style={styles.bookEmoji}>📘</Text>
                 )}
               </View>
               <View style={styles.bookInfo}>
@@ -87,10 +101,32 @@ export default function BooksList() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0b1220', padding: 16 },
+  container: { flex: 1, backgroundColor: '#0b1220', paddingTop: 50 }, // paddingTop để chừa chỗ cho header
   center: { justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#fff', marginBottom: 20, textAlign: 'center' },
-  list: { flex: 1 },
+
+  // Header mới
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  backButton: {
+    padding: 8,
+    backgroundColor: '#1e293b',
+    borderRadius: 12,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    flex: 1,
+    textAlign: 'center',
+    marginRight: -48, // bù lại cho nút back bên trái
+  },
+
+  list: { flex: 1, paddingHorizontal: 16 },
   emptyText: { color: '#94a3b8', textAlign: 'center', marginTop: 50, fontSize: 16 },
   bookCard: {
     flexDirection: 'row',
@@ -111,9 +147,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     marginRight: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   coverImage: { width: '100%', height: '100%' },
-  bookEmoji: { fontSize: 48, color: '#64748b' },
+  bookEmoji: { fontSize: 48 },
   bookInfo: { flex: 1 },
   bookTitle: { color: '#fff', fontSize: 19, fontWeight: 'bold' },
   bookAuthor: { color: '#cbd5e1', fontSize: 15, marginTop: 4 },

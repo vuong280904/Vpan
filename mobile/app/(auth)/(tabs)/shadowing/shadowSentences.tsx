@@ -1,8 +1,9 @@
+import { Ionicons } from '@expo/vector-icons'; // ← Thêm để có icon back đẹp
 import axios from 'axios';
 import * as expoAv from 'expo-av';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,12 +12,12 @@ import {
   Modal,
   Platform,
   SafeAreaView,
-  StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
-import { getPronunciationUrl } from '../../utils/jishoApi';
+import { getPronunciationUrl } from '../../../utils/jishoApi';
+import { styles } from './shadowSentences.styles';
 
 // --- Types
 interface Sentence {
@@ -31,13 +32,22 @@ interface TopicDetail {
 }
 
 // --- Assets & config
-const BASE_URL = 'http://localhost:5000';
-const LOCAL_FRAME_URI = require('../../../assets/images/linhvat.png');
-const FINISH_FRAME_URI = require('../../../assets/images/nenlike.png');
+const BASE_URL = 
+  Platform.OS === "web" 
+    ? "http://localhost:5000"
+    : "http://172.20.10.3:5000";
+const LOCAL_FRAME_URI = require('../../../../assets/images/linhvat.png');
+const FINISH_FRAME_URI = require('../../../../assets/images/nenlike.png');
 
 // --- Component
 const ShadowSentencesScreen: React.FC = () => {
-  const { topicId } = useLocalSearchParams<{ topicId: string }>();
+  const params = useLocalSearchParams<{
+    topicId?: string;
+    customSentence?: string;
+    customRuby?: string;
+    customMeaning?: string;
+  }>();
+  const { topicId, customSentence, customRuby, customMeaning } = params;
 
   // data
   const [topic, setTopic] = useState<TopicDetail | null>(null);
@@ -71,17 +81,38 @@ const ShadowSentencesScreen: React.FC = () => {
     isLast: false,
   });
 
-  // fetch topic
+  // fetch topic or use custom
   useEffect(() => {
-    if (topicId) fetchTopicDetail(String(topicId));
+    if (customSentence) {
+      // Custom mode: tạo topic tạm với 1 câu
+      const customTopic: TopicDetail = {
+        title: 'Luyện nói câu tùy chỉnh',
+        description: customMeaning || 'Từ sách song ngữ',
+        sentences: [
+          {
+            number: 1,
+            text: customSentence.trim(),
+          },
+        ],
+      };
+      setTopic(customTopic);
+      setLoading(false);
+      return;
+    }
+
+    // Normal mode: fetch từ server
+    if (topicId) {
+      fetchTopicDetail(String(topicId));
+    } else {
+      Alert.alert('Lỗi', 'Không có dữ liệu để luyện nói');
+      setLoading(false);
+    }
 
     return () => {
       (async () => {
         try {
           await playback?.unloadAsync();
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) {}
 
         if (streamRef.current) {
           try {
@@ -98,7 +129,7 @@ const ShadowSentencesScreen: React.FC = () => {
       })();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topicId]);
+  }, [topicId, customSentence]);
 
   const fetchTopicDetail = async (id: string) => {
     try {
@@ -118,39 +149,33 @@ const ShadowSentencesScreen: React.FC = () => {
     try {
       const url = await getPronunciationUrl(text);
       if (!url) return;
-  
+
       console.log('playPronunciation url=', url);
-  
+
       if (Platform.OS === 'web') {
         const audio = new (window as any).Audio(url);
         audio.play().catch((e: any) => console.warn('Web audio play failed', e));
         return;
       }
-  
+
       let finalUrl = url;
       if (!/^https?:\/\//i.test(finalUrl) && !finalUrl.startsWith('file://')) {
         finalUrl = encodeURI(finalUrl);
       }
-  
-      // quick GET check
+
       let ok = false;
       try {
         const resp = await fetch(finalUrl, { method: 'GET', cache: 'no-store' });
         ok = resp.ok;
-        if (!ok) console.warn('playPronunciation: GET returned', resp.status);
-      } catch (e) {
-        console.warn('playPronunciation: health check failed', e);
-      }
-  
-      // nếu GET không ok -> download rồi play local
+      } catch (e) {}
+
       if (!ok) {
         try {
           const dest = `${(FileSystem as any).cacheDirectory}tts_${encodeURIComponent(text)}.mp3`;
           const dl = await FileSystem.downloadAsync(finalUrl, dest);
           const info = await FileSystem.getInfoAsync(dl.uri);
-          if (!info.exists) throw new Error('Downloaded file not exists');
-  
-          // create and play (local)
+          if (!info.exists) throw new Error('Download failed');
+
           const { sound } = await expoAv.Audio.Sound.createAsync({ uri: dl.uri }, { shouldPlay: true });
           sound.setOnPlaybackStatusUpdate((status) => {
             if (status.isLoaded && status.didJustFinish) {
@@ -159,12 +184,11 @@ const ShadowSentencesScreen: React.FC = () => {
           });
           return;
         } catch (e) {
-          console.warn('playPronunciation: download+play failed', e);
+          console.warn('download+play failed', e);
           return;
         }
       }
-  
-      // play remote directly
+
       const { sound } = await expoAv.Audio.Sound.createAsync({ uri: finalUrl }, { shouldPlay: true });
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
@@ -175,10 +199,10 @@ const ShadowSentencesScreen: React.FC = () => {
       console.error('Lỗi phát âm:', err);
     }
   };
-  
 
   const currentSentence = topic?.sentences?.[currentIndex] ?? null;
   const totalSentences = topic?.sentences?.length ?? 0;
+  const isCustomMode = !!customSentence;
 
   // ---------------- Mobile recording ----------------
   const startRecordingMobile = async () => {
@@ -228,7 +252,6 @@ const ShadowSentencesScreen: React.FC = () => {
 
       mr.onstart = () => setIsRecordingState(true);
       mr.ondataavailable = (e: any) => e.data && e.data.size > 0 && audioChunksRef.current.push(e.data);
-      mr.onerror = (err: any) => console.error('MediaRecorder error', err);
       mr.onstop = () => {
         try {
           const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
@@ -238,7 +261,6 @@ const ShadowSentencesScreen: React.FC = () => {
           setRecordingUri(null);
         } finally {
           audioChunksRef.current = [];
-          mediaRecorderRef.current = null;
           setIsRecordingState(false);
         }
       };
@@ -246,7 +268,6 @@ const ShadowSentencesScreen: React.FC = () => {
       mediaRecorderRef.current = mr;
       mr.start();
       setRecordingUri(null);
-      setIsRecordingState(true);
     } catch (err) {
       console.error(err);
       Alert.alert('Lỗi micro', 'Trình duyệt không cho phép ghi âm');
@@ -256,23 +277,16 @@ const ShadowSentencesScreen: React.FC = () => {
   const stopRecordingWeb = () => {
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
-      try {
-        recorder.stop();
-      } catch (e) {
-        console.error(e);
-      }
-      setTimeout(() => {
-        if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') setIsRecordingState(false);
-      }, 600);
-    } else {
-      setIsRecordingState(false);
+      recorder.stop();
     }
+    setIsRecordingState(false);
   };
 
   const startRecording = () => {
     if (Platform.OS === 'web') startRecordingWeb();
     else startRecordingMobile();
   };
+
   const stopRecording = () => {
     if (Platform.OS === 'web') stopRecordingWeb();
     else stopRecordingMobile();
@@ -280,13 +294,9 @@ const ShadowSentencesScreen: React.FC = () => {
 
   const isRecording = Platform.OS === 'web' ? isRecordingState : !!recording;
 
-  // playback
+  // playback recording của người dùng
   const playRecording = async () => {
-if (!recordingUri) {
-      console.warn('[Shadow] playRecording: no recordingUri');
-      return;
-    }
-    console.log('[Shadow] playRecording uri=', recordingUri);
+    if (!recordingUri) return;
     try {
       await playback?.unloadAsync();
       const { sound } = await Audio.Sound.createAsync({ uri: recordingUri }, { shouldPlay: true });
@@ -345,7 +355,6 @@ if (!recordingUri) {
       setFinishModalVisible(true);
     } else {
       setCurrentIndex((i) => i + 1);
-      // reset recording state for the next sentence
       setRecordingUri(null);
     }
   };
@@ -366,9 +375,20 @@ if (!recordingUri) {
 
   return (
     <SafeAreaView style={styles.full}>
+      <TouchableOpacity 
+          onPress={() => router.back()} 
+          style={styles.backButton}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={28} color="#fff" />
+        </TouchableOpacity>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{topic.title}</Text>
-        <Text style={styles.headerSubtitle}>{topic.description}</Text>
+        <Text style={styles.headerTitle}>
+          {isCustomMode ? 'Luyện nói câu tùy chỉnh' : topic.title}
+        </Text>
+        <Text style={styles.headerSubtitle}>
+          {isCustomMode ? (customMeaning || 'Shadowing nhanh từ sách') : topic.description}
+        </Text>
       </View>
 
       <View style={styles.container}>
@@ -376,7 +396,9 @@ if (!recordingUri) {
           <View style={styles.progressBarBg}>
             <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
           </View>
-          <Text style={styles.progressLabel}>Câu {currentIndex + 1} / {totalSentences} · {progressPercent}%</Text>
+          <Text style={styles.progressLabel}>
+            Câu {currentIndex + 1} / {totalSentences} · {progressPercent}%
+          </Text>
         </View>
 
         <View style={styles.card}>
@@ -387,14 +409,29 @@ if (!recordingUri) {
 
           <Text style={styles.sentenceText}>{currentSentence.text}</Text>
 
-          {/* waveform placeholder */}
+          {/* Furigana nếu có (chỉ ở custom mode) */}
+          {customRuby && (
+            <Text style={styles.rubyText}>【{customRuby}】</Text>
+          )}
+
+          {/* Nút nghe mẫu */}
+          <TouchableOpacity
+            onPress={() => playPronunciation(currentSentence.text)}
+            style={styles.sampleBtn}
+          >
+            <Text style={styles.sampleBtnText}>🔊 Nghe mẫu</Text>
+          </TouchableOpacity>
+
+          {/* Waveform placeholder */}
           <View style={styles.waveformPlaceholder}>
-            <Text style={styles.waveformText} onPress={() => playPronunciation(currentSentence.text)}>🔊 Waveform</Text>
+            <Text style={styles.waveformText}>
+              {isRecording ? '🔴 Đang ghi âm...' : recordingUri ? '✅ Đã ghi âm xong' : 'Sẵn sàng ghi âm'}
+            </Text>
           </View>
 
           <View style={styles.actionsRow}>
             {!isRecording ? (
-              <TouchableOpacity onPress={startRecording} style={[styles.bigBtn, styles.btnRecord]} disabled={isSubmitting || finished}>
+              <TouchableOpacity onPress={startRecording} style={[styles.bigBtn, styles.btnRecord]} disabled={isSubmitting}>
                 <Text style={styles.bigBtnText}>⏺️ Ghi âm</Text>
               </TouchableOpacity>
             ) : (
@@ -404,24 +441,37 @@ if (!recordingUri) {
             )}
 
             <View style={styles.rightColumn}>
-              <TouchableOpacity onPress={playRecording} disabled={!recordingUri || isRecording} style={[styles.smallBtn, !recordingUri && styles.disabled]}>
-                <Text style={styles.smallBtnText}>▶️ Nghe</Text>
+              <TouchableOpacity
+                onPress={playRecording}
+                disabled={!recordingUri || isRecording}
+                style={[styles.smallBtn, (!recordingUri || isRecording) && styles.disabled]}
+              >
+                <Text style={styles.smallBtnText}>▶️ Nghe lại</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={submitAndNext} disabled={!recordingUri || isSubmitting || finished} style={[styles.smallBtn, styles.btnSubmit, (!recordingUri || isSubmitting || finished) && styles.disabled]}>
-                <Text style={styles.smallBtnText}>{currentIndex === totalSentences - 1 ? 'Hoàn thành' : 'Chấm & tiếp'}</Text>
+              <TouchableOpacity
+                onPress={submitAndNext}
+                disabled={!recordingUri || isSubmitting}
+                style={[styles.smallBtn, styles.btnSubmit, (!recordingUri || isSubmitting) && styles.disabled]}
+              >
+                <Text style={styles.smallBtnText}>
+                  {currentIndex === totalSentences - 1 ? 'Hoàn thành' : 'Chấm & tiếp'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
 
           <Text style={styles.statusText}>
-            {isRecording ? 'Đang ghi âm... Nhấn Dừng khi hoàn tất.' : recordingUri ? 'Bản ghi sẵn sàng — có thể nghe hoặc chấm điểm.' : 'Nhấn Ghi âm để bắt đầu.'}
+            {isRecording
+              ? 'Đang ghi âm... Nói to và rõ ràng nhé!'
+              : recordingUri
+              ? 'Bản ghi đã sẵn sàng. Nghe lại hoặc chấm điểm.'
+              : 'Nhấn "Ghi âm" để bắt đầu luyện nói.'}
           </Text>
-
         </View>
 
         <View style={styles.totalBox}>
-          <Text style={styles.totalLabel}>Tổng điểm</Text>
+          <Text style={styles.totalLabel}>Tổng điểm hiện tại</Text>
           <Text style={styles.totalValue}>{totalScore.toFixed(1)}</Text>
         </View>
       </View>
@@ -433,7 +483,9 @@ if (!recordingUri) {
             <Image source={LOCAL_FRAME_URI} style={styles.modalDecor} resizeMode="contain" />
             <Text style={styles.modalTitle}>Câu {resultData.sentenceNumber}</Text>
             <Text style={styles.modalScore}>Điểm: {resultData.score.toFixed(1)}</Text>
-            <Text style={styles.modalErrors}>{resultData.errors.length ? 'Lỗi: ' + resultData.errors.join(', ') : 'Hoàn hảo!'}</Text>
+            <Text style={styles.modalErrors}>
+              {resultData.errors.length ? 'Lỗi: ' + resultData.errors.join(', ') : 'Tuyệt vời! Hoàn hảo! 🎉'}
+            </Text>
             <TouchableOpacity style={styles.modalOk} onPress={onResultOk}>
               <Text style={styles.modalOkText}>OK</Text>
             </TouchableOpacity>
@@ -446,73 +498,17 @@ if (!recordingUri) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Image source={FINISH_FRAME_URI} style={styles.modalDecor} resizeMode="contain" />
-            <Text style={styles.modalTitle}>Hoàn thành 🎉</Text>
-            <Text style={styles.modalSubtitle}>Bạn đã hoàn thành {totalSentences} câu</Text>
+            <Text style={styles.modalTitle}>Hoàn thành! 🎉</Text>
+            <Text style={styles.modalSubtitle}>Bạn đã luyện xong {totalSentences} câu</Text>
             <Text style={styles.modalScore}>Tổng điểm: {totalScore.toFixed(1)}</Text>
-            <TouchableOpacity style={[styles.modalOk, styles.modalClose]} onPress={() => setFinishModalVisible(false)}>
-              <Text style={styles.modalOkText}>Đóng</Text>
+            <TouchableOpacity style={[styles.modalOk, styles.modalClose]} onPress={() => router.back()}>
+              <Text style={styles.modalOkText}>Quay lại</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
     </SafeAreaView>
   );
 };
-
-// --- Styles (clean, accessible)
-const styles = StyleSheet.create({
-  full: { flex: 1, backgroundColor: '#0b1220' },
-  header: { paddingTop: 18, paddingHorizontal: 18, paddingBottom: 10 },
-  headerTitle: { color: '#fff', fontSize: 20, fontWeight: '800' },
-  headerSubtitle: { color: '#94a3b8', marginTop: 6, fontSize: 13 },
-
-  container: { flex: 1, padding: 16 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#9ca3af', marginTop: 12 },
-
-  progressRow: { marginBottom: 12 },
-  progressBarBg: { height: 10, backgroundColor: '#111827', borderRadius: 999, overflow: 'hidden' },
-  progressBarFill: { height: '100%', backgroundColor: '#3b82f6' },
-  progressLabel: { marginTop: 8, color: '#cbd5e1', fontSize: 13, fontWeight: '600' },
-
-  card: { backgroundColor: '#0f1724', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#1f2a3a', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6 },
-  sentenceHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  sentenceNumber: { color: '#93c5fd', fontWeight: '700' },
-  sentenceLength: { color: '#64748b', fontSize: 12 },
-
-  sentenceText: { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 30, marginBottom: 12 },
-  waveformPlaceholder: { height: 56, borderRadius: 8, borderWidth: 1, borderColor: '#1f2937', justifyContent: 'center', alignItems: 'center', marginBottom: 12, backgroundColor: '#071023' },
-  waveformText: { color: '#94a3b8' },
-
-  actionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  bigBtn: { paddingVertical: 14, paddingHorizontal: 18, borderRadius: 12, minWidth: 160, alignItems: 'center' },
-  btnRecord: { backgroundColor: '#ef4444' },
-  btnStop: { backgroundColor: '#f97316' },
-  bigBtnText: { color: '#fff', fontWeight: '800' },
-
-  rightColumn: { alignItems: 'flex-end' },
-  smallBtn: { marginBottom: 8, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#111827' },
-  btnSubmit: { backgroundColor: '#10b981' },
-  smallBtnText: { color: '#fff', fontWeight: '700' },
-  disabled: { opacity: 0.45 },
-
-  statusText: { marginTop: 12, color: '#9aa4b2', fontSize: 13, textAlign: 'center' },
-
-  totalBox: { marginTop: 18, alignItems: 'center' },
-  totalLabel: { color: '#94a3b8', fontSize: 13 },
-  totalValue: { color: '#60a5fa', fontSize: 24, fontWeight: '900', marginTop: 6 },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(2,6,23,0.7)', justifyContent: 'center', alignItems: 'center', padding: 18 },
-  modalCard: { width: '90%', maxWidth: 520, backgroundColor: '#fff', borderRadius: 12, padding: 22, alignItems: 'center', position: 'relative' },
-  modalDecor: { width: 600, height: 240, position: 'absolute', top: -120 },
-  modalTitle: { fontSize: 20, fontWeight: '900', marginTop: 40, color: '#0b1220' },
-  modalSubtitle: { color: '#475569', marginTop: 6 },
-  modalScore: { fontSize: 26, fontWeight: '900', color: '#b45309', marginTop: 10 },
-  modalErrors: { marginTop: 10, color: '#334155', textAlign: 'center' },
-  modalOk: { marginTop: 18, backgroundColor: '#3b82f6', paddingVertical: 12, paddingHorizontal: 36, borderRadius: 10 },
-  modalClose: { backgroundColor: '#10b981' },
-  modalOkText: { color: '#fff', fontWeight: '800' },
-});
 
 export default ShadowSentencesScreen;

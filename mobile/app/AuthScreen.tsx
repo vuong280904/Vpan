@@ -1,4 +1,4 @@
-// app/auth.tsx – FIX HOÀN TOÀN
+// app/auth.tsx – ĐÃ FIX HOÀN TOÀN CHO ANDROID
 import { useAuth } from "@/context/AuthContext";
 import { FontAwesome } from "@expo/vector-icons";
 import { useGoogleLogin } from "@react-oauth/google";
@@ -23,6 +23,7 @@ import {
 } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import FacebookSDK from "../components/FacebookSDK";
+
 WebBrowser.maybeCompleteAuthSession();
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -35,8 +36,8 @@ const BG_IMAGE =
 
 const API_URL = Platform.select({
     web: "http://localhost:5000/api/auth",
-    ios: "http://192.168.2.7:5000/api/auth",
-    android: "http://192.168.2.7:5000/api/auth",
+    ios: "http://172.20.10.3:5000/api/auth",
+    android: "http://172.20.10.3:5000/api/auth",
 });
 
 const FB_APP_ID = "1501472567745202";
@@ -53,26 +54,42 @@ export default function AuthScreen() {
 
     const panelActive = useSharedValue(0);
 
-    // GOOGLE LOGIN
-    const googleLogin = useGoogleLogin({
-        onSuccess: async (response) => {
-            try {
-                setLoading(true);
-                const res = await axios.post(`${API_URL}/google-login`, {
-                    token: response.access_token,
-                });
-                await login(res.data.token, res.data.user); // Chỉ login, không redirect
-            } catch (err: any) {
-                Alert.alert("Lỗi", err.response?.data?.message || "Đăng nhập thất bại");
-            } finally {
-                setLoading(false);
-            }
-        },
-        onError: () => Alert.alert("Hủy", "Đăng nhập Google bị hủy"),
-    });
+    // GOOGLE LOGIN – CHỈ DÙNG TRÊN WEB HOẶC IOS (tạm thời bỏ qua Android để tránh crash)
+    const googleLogin = Platform.OS !== "android"
+        ? useGoogleLogin({
+              onSuccess: async (response) => {
+                  try {
+                      setLoading(true);
+                      const res = await axios.post(`${API_URL}/google-login`, {
+                          token: response.access_token,
+                      });
+                      await login(res.data.token, res.data.user);
+                  } catch (err: any) {
+                      Alert.alert("Lỗi", err.response?.data?.message || "Đăng nhập thất bại");
+                  } finally {
+                      setLoading(false);
+                  }
+              },
+              onError: () => Alert.alert("Hủy", "Đăng nhập Google bị hủy"),
+          })
+        : null; // Không khởi tạo hook trên Android
 
-    // FACEBOOK LOGIN
-    const redirectUri = window.location.origin;
+    // Hàm xử lý bấm nút Google – an toàn trên mọi platform
+    const handleGooglePress = () => {
+        if (Platform.OS === "android") {
+            Alert.alert(
+                "Tạm thời chưa hỗ trợ",
+                "Đăng nhập bằng Google đang được phát triển cho Android. Vui lòng dùng Email hoặc Facebook."
+            );
+            return;
+        }
+        if (googleLogin) {
+            googleLogin();
+        }
+    };
+
+    // FACEBOOK LOGIN (giữ nguyên như cũ)
+    const redirectUri = Platform.OS === "web" ? window.location.origin : undefined;
     const [request, fbResponse, fbPromptAsync] = Facebook.useAuthRequest({
         clientId: FB_APP_ID,
         responseType: "token",
@@ -105,7 +122,7 @@ export default function AuthScreen() {
             setLoading(true);
             const res = await axios.post(`${API_URL}/facebook-login`, { accessToken, userID });
             if (res.data.token && res.data.user) {
-                await login(res.data.token, res.data.user); // Chỉ login, không redirect
+                await login(res.data.token, res.data.user);
             }
         } catch (err: any) {
             Alert.alert("Lỗi", err.response?.data?.message || "Đăng nhập Facebook thất bại");
@@ -114,8 +131,6 @@ export default function AuthScreen() {
         }
     };
 
-    const handleGooglePress = () => googleLogin();
-
     // ANIMATION
     const toggleToSignUp = () => {
         panelActive.value = withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) });
@@ -123,19 +138,30 @@ export default function AuthScreen() {
     const toggleToSignIn = () => {
         panelActive.value = withTiming(0, { duration: 600, easing: Easing.inOut(Easing.ease) });
     };
-    const signInStyle = useAnimatedStyle(() => ({ transform: [{ translateX: panelActive.value * PANEL_WIDTH }], zIndex: panelActive.value < 0.5 ? 2 : 1 }));
-    const signUpStyle = useAnimatedStyle(() => ({ transform: [{ translateX: panelActive.value * PANEL_WIDTH }], opacity: panelActive.value < 0.5 ? 0 : panelActive.value, zIndex: panelActive.value > 0.5 ? 5 : 1 }));
+    const signInStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: panelActive.value * PANEL_WIDTH }],
+        zIndex: panelActive.value < 0.5 ? 2 : 1,
+    }));
+    const signUpStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: panelActive.value * PANEL_WIDTH }],
+        opacity: panelActive.value < 0.5 ? 0 : panelActive.value,
+        zIndex: panelActive.value > 0.5 ? 5 : 1,
+    }));
     const overlayStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -panelActive.value * PANEL_WIDTH }] }));
     const overlayInnerStyle = useAnimatedStyle(() => ({ transform: [{ translateX: panelActive.value * PANEL_WIDTH }] }));
-    const overlayLeftStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -PANEL_WIDTH * 0.2 + panelActive.value * PANEL_WIDTH * 0.2 }] }));
-    const overlayRightStyle = useAnimatedStyle(() => ({ transform: [{ translateX: panelActive.value * PANEL_WIDTH * 0.2 }] }));
+    const overlayLeftStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: -PANEL_WIDTH * 0.2 + panelActive.value * PANEL_WIDTH * 0.2 }],
+    }));
+    const overlayRightStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: panelActive.value * PANEL_WIDTH * 0.2 }],
+    }));
 
     const handleLogin = async () => {
         if (!loginEmail || !loginPass) return Alert.alert("Lỗi", "Vui lòng nhập đầy đủ");
         setLoading(true);
         try {
             const res = await axios.post(`${API_URL}/login`, { email: loginEmail, password: loginPass });
-            await login(res.data.token, res.data.user); // Chỉ login, AuthProvider handle redirect
+            await login(res.data.token, res.data.user);
         } catch (err: any) {
             Alert.alert("Lỗi", err.response?.data?.message || "Sai email hoặc mật khẩu");
         } finally {
@@ -231,7 +257,7 @@ const COLORS = {
     gray: "#333",
     blue: "#0367a6",
     lightblue: "#008997",
-    red: " #ff4b2b",
+    red: "#ff4b2b",
     lightred: "#ff416c",
 };
 

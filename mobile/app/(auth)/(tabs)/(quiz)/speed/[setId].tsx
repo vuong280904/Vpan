@@ -1,10 +1,39 @@
 // app/(auth)/(quiz)/speed/[setId].tsx
-import { useLocalSearchParams } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Alert, Platform, Text, View } from 'react-native';
 import QuestionCard from '../../../../../components/Quiz/QuestionCard';
 import ResultScreen from '../../../../../components/Quiz/ResultScreen';
 import api from '../../../../utils/api';
+
+const API_URL = Platform.OS === "web" 
+    ? "http://localhost:5000/api"
+    : "http://172.20.10.3:5000/api";
+
+// Xử lý SecureStore / AsyncStorage để lấy token
+let getItemAsync: (key: string) => Promise<string | null>;
+
+if (Platform.OS !== 'web') {
+  try {
+    const SecureStore = require('expo-secure-store');
+    getItemAsync = SecureStore.getItemAsync;
+  } catch (e) {
+    getItemAsync = AsyncStorage.getItem;
+  }
+} else {
+  getItemAsync = AsyncStorage.getItem;
+}
+
+const getAuthToken = async () => {
+  try {
+    const token = await getItemAsync('token');
+    return token;
+  } catch (error) {
+    console.error('Error retrieving auth token:', error);
+    return null;
+  }
+};
 
 export default function SpeedRun() {
   const params = useLocalSearchParams<{ setId: string; reset?: string }>();
@@ -18,40 +47,61 @@ export default function SpeedRun() {
 
   const fetchCards = useCallback(async () => {
     if (!setId) return;
+
     try {
-      const res = await api.get(`/api/flashcard-sets/${setId}/flashcards`);
-      const shuffled = [...res.data].sort(() => Math.random() - 0.5);
+      // ƯU TIÊN DÙNG PUBLIC API TRƯỚC → an toàn, không gây lỗi 401
+      const publicRes = await fetch(`${API_URL}/flashcard-sets/public/${setId}/flashcards`);
+
+      if (publicRes.ok) {
+        const publicData = await publicRes.json();
+        const shuffled = [...publicData].sort(() => Math.random() - 0.5);
+        setCards(shuffled);
+        return; // Thành công với public → thoát luôn
+      }
+
+      // Nếu public lỗi (404 hoặc khác) → thử private (chỉ khi có token)
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('Bộ thẻ không công khai và bạn chưa đăng nhập');
+      }
+
+      // Dùng API private
+      const privateRes = await api.get(`/api/flashcard-sets/${setId}/flashcards`);
+      const shuffled = [...privateRes.data].sort(() => Math.random() - 0.5);
       setCards(shuffled);
+
     } catch (err) {
-      console.error('Lỗi tải flashcard:', err);
+      console.error('Lỗi tải flashcard cho Speed Run:', err);
+      Alert.alert('Lỗi', 'Không thể tải bộ thẻ để làm quiz. Bộ này có thể không công khai hoặc không tồn tại.');
+      router.back();
     }
   }, [setId]);
 
-  // load lần đầu (và khi setId thay đổi)
+  // Load lần đầu
   useEffect(() => {
     fetchCards();
-    // reset local state when loading new set
     setCurrent(0);
     setScore(0);
     setFinished(false);
     setStartTime(Date.now());
   }, [fetchCards]);
 
-  // restart khi param reset thay đổi
+  // Restart khi có param reset
   useEffect(() => {
     if (!reset) return;
-    // nếu chưa có cards thì fetch lại, còn có thì reshuffle
+
     if (cards.length > 0) {
       const reshuffled = [...cards].sort(() => Math.random() - 0.5);
       setCards(reshuffled);
     } else {
       fetchCards();
     }
+
     setCurrent(0);
     setScore(0);
     setFinished(false);
     setStartTime(Date.now());
-  }, [reset]); // chỉ dựa vào reset (string) — mỗi lần khác nhau sẽ chạy
+  }, [reset]);
 
   const handleAnswer = (correct: boolean) => {
     if (correct) setScore(s => s + 1);
@@ -98,7 +148,7 @@ export default function SpeedRun() {
         </Text>
       </View>
 
-      {/* Câu hỏi + 4 đáp án (1 đúng + 3 sai từ các thẻ khác) */}
+      {/* Câu hỏi */}
       <QuestionCard
         card={currentCard}
         allCards={cards}
