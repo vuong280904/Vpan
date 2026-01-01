@@ -1,3 +1,5 @@
+// src/context/AuthContext.tsx (hoặc đường dẫn hiện tại của bạn)
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
@@ -26,11 +28,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // ← rất quan trọng cho AuthLayout
 
   // 1️⃣ Load user + token từ storage khi app khởi động
   useEffect(() => {
-    (async () => {
+    const loadAuth = async () => {
       try {
         const [storedToken, storedUser] = await Promise.all([
           AsyncStorage.getItem("token"),
@@ -43,26 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setToken(storedToken);
           setUser(userWithToken);
         }
+        // Nếu không có token/user → vẫn để user = null, token = null
       } catch (e) {
         console.log("Lỗi load auth:", e);
       } finally {
+        // ← QUAN TRỌNG: luôn set isLoading = false ở cuối
         setIsLoading(false);
       }
-    })();
+    };
+
+    loadAuth();
   }, []);
 
-  // 2️⃣ Redirect khi đã load xong và có user
-  useEffect(() => {
-    if (!isLoading && user && token) {
-      if (user.role === "admin") {
-        router.replace("/(auth)/admin");
-      } else {
-        router.replace("/(auth)/(tabs)");
-      }
-    }
-  }, [isLoading, user, token]);
-
-  // 3️⃣ Login: chỉ lưu token + user, không redirect
+  // 3️⃣ Login: lưu token + user, không redirect (giữ nguyên)
   const login = async (newToken: string, userData: any) => {
     const userWithToken = {
       ...userData,
@@ -78,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem("user", JSON.stringify(userWithToken));
   };
 
-  // 4️⃣ Cập nhật user
+  // 4️⃣ Cập nhật user (giữ nguyên)
   const updateUser = (newUserData: any) => {
     setUser(prev => {
       if (!prev) return prev;
@@ -88,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // 5️⃣ Logout
+  // 5️⃣ Logout (giữ nguyên)
   const logout = async () => {
     setUser(null);
     setToken(null);

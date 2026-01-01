@@ -79,7 +79,7 @@ const ShadowTopicScreen = () => {
       {/* ==================== HEADER VỚI NÚT BACK ==================== */}
       <View style={styles.header}>
         <TouchableOpacity 
-          onPress={() => router.back()} 
+          onPress={() => router.replace("/(auth)/(tabs)")}
           style={styles.backButton}
           activeOpacity={0.7}
         >

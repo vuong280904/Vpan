@@ -5,15 +5,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Platform, Text, View } from 'react-native';
 import QuestionCard from '../../../../../components/Quiz/QuestionCard';
 import ResultScreen from '../../../../../components/Quiz/ResultScreen';
-import Timer from '../../../../../components/Quiz/Timer'; // Component đồng hồ đẹp
-import api from '../../../../utils/api';
+import Timer from '../../../../../components/Quiz/Timer';
 
-const API_URL = Platform.OS === "web" 
-    ? "http://localhost:5000/api"
-    : "http://172.20.10.3:5000/api";
+const API_URL = Platform.OS === "web"
+  ? "http://localhost:5000/api"
+  : "http://172.20.10.3:5000/api";
+
 const INITIAL_TIME = 600; // 10 phút = 600 giây
 
-// Xử lý SecureStore / AsyncStorage để lấy token
+// Xử lý SecureStore / AsyncStorage
 let getItemAsync: (key: string) => Promise<string | null>;
 
 if (Platform.OS !== 'web') {
@@ -38,8 +38,12 @@ const getAuthToken = async () => {
 };
 
 export default function TimedQuiz() {
-  const params = useLocalSearchParams<{ setId: string; reset?: string }>();
-  const { setId, reset } = params;
+  const params = useLocalSearchParams<{
+    setId: string;
+    questionCount?: string;   // ← Thêm để nhận số lượng câu hỏi
+    reset?: string;
+  }>();
+  const { setId, questionCount: qcParam, reset } = params;
 
   const [cards, setCards] = useState<any[]>([]);
   const [current, setCurrent] = useState(0);
@@ -47,39 +51,57 @@ export default function TimedQuiz() {
   const [timeLeft, setTimeLeft] = useState(INITIAL_TIME);
   const [finished, setFinished] = useState(false);
 
-    const fetchCards = useCallback(async () => {
+  // === TẢI DỮ LIỆU – DÙNG ROUTE QUIZ-FLASHCARDS NHƯ SPEEDRUN ===
+  const fetchCards = useCallback(async () => {
     if (!setId) return;
 
     try {
-      // ƯU TIÊN DÙNG PUBLIC API TRƯỚC → an toàn, không gây lỗi 401
-      const publicRes = await fetch(`${API_URL}/flashcard-sets/public/${setId}/flashcards`);
+      let res = await fetch(`${API_URL}/flashcard-sets/${setId}/quiz-flashcards`);
 
-      if (publicRes.ok) {
-        const publicData = await publicRes.json();
-        const shuffled = [...publicData].sort(() => Math.random() - 0.5);
-        setCards(shuffled);
-        return; // Thành công với public → thoát luôn
+      if (res.ok) {
+        const data = await res.json();
+        await processAndSetCards(data);
+        return;
       }
 
-      // Nếu public lỗi (404 hoặc khác) → thử private (chỉ khi có token)
+      // Fallback nếu cần token (private set)
       const token = await getAuthToken();
-      if (!token) {
-        throw new Error('Bộ thẻ không công khai và bạn chưa đăng nhập');
+      if (token) {
+        res = await fetch(`${API_URL}/flashcard-sets/${setId}/quiz-flashcards`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          await processAndSetCards(data);
+          return;
+        }
       }
 
-      // Dùng API private
-      const privateRes = await api.get(`/api/flashcard-sets/${setId}/flashcards`);
-      const shuffled = [...privateRes.data].sort(() => Math.random() - 0.5);
-      setCards(shuffled);
-
+      throw new Error('Không thể tải bộ thẻ');
     } catch (err) {
-      console.error('Lỗi tải flashcard cho Speed Run:', err);
-      Alert.alert('Lỗi', 'Không thể tải bộ thẻ để làm quiz. Bộ này có thể không công khai hoặc không tồn tại.');
+      console.error('Lỗi tải flashcard cho Timed Quiz:', err);
+      Alert.alert('Lỗi', 'Không thể tải bộ thẻ để làm quiz. Bộ này có thể không tồn tại hoặc link đã hết hạn.');
       router.back();
     }
   }, [setId]);
 
-  // Load lần đầu
+  // === XỬ LÝ SỐ LƯỢNG CÂU HỎI ===
+  const processAndSetCards = async (data: any[]) => {
+    const questionCount = qcParam ? parseInt(qcParam) : null;
+
+    let cardsToUse = data;
+
+    if (questionCount && questionCount > 0 && questionCount < data.length) {
+      const shuffled = [...data].sort(() => Math.random() - 0.5);
+      cardsToUse = shuffled.slice(0, questionCount);
+    } else {
+      cardsToUse = [...data].sort(() => Math.random() - 0.5);
+    }
+
+    setCards(cardsToUse);
+  };
+
+  // === LOAD LẦN ĐẦU ===
   useEffect(() => {
     fetchCards();
     setCurrent(0);
@@ -88,7 +110,7 @@ export default function TimedQuiz() {
     setTimeLeft(INITIAL_TIME);
   }, [fetchCards]);
 
-  // Restart khi có param reset (từ ResultScreen)
+  // === LÀM LẠI KHI NHẤN "LÀM LẠI" ===
   useEffect(() => {
     if (!reset) return;
 
@@ -105,7 +127,7 @@ export default function TimedQuiz() {
     setTimeLeft(INITIAL_TIME);
   }, [reset]);
 
-  // Đồng hồ đếm ngược
+  // === ĐỒNG HỒ ĐẾM NGƯỢC ===
   useEffect(() => {
     if (timeLeft <= 0 || finished) {
       setFinished(true);
@@ -113,23 +135,24 @@ export default function TimedQuiz() {
     }
 
     const timer = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
+      setTimeLeft(prev => prev - 1);
     }, 1000);
 
     return () => clearInterval(timer);
   }, [timeLeft, finished]);
 
+  // === XỬ LÝ TRẢ LỜI ===
   const handleAnswer = (correct: boolean) => {
-    if (correct) setScore((s) => s + 1);
+    if (correct) setScore(s => s + 1);
 
     if (current < cards.length - 1) {
-      setTimeout(() => setCurrent((c) => c + 1), 800);
+      setTimeout(() => setCurrent(c => c + 1), 800);
     } else {
       setFinished(true);
     }
   };
 
-  // Khi hết giờ hoặc làm xong → hiển thị kết quả
+  // === KẾT THÚC (hết giờ hoặc làm xong) ===
   if (finished || timeLeft <= 0) {
     const timeUsed = INITIAL_TIME - timeLeft;
     return (
@@ -143,7 +166,7 @@ export default function TimedQuiz() {
     );
   }
 
-  // Đang tải thẻ
+  // === ĐANG TẢI ===
   if (cards.length === 0) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0b1220' }}>
@@ -162,7 +185,6 @@ export default function TimedQuiz() {
           Câu {current + 1}/{cards.length}
         </Text>
 
-        {/* Đồng hồ lớn đẹp */}
         <Timer seconds={timeLeft} size={52} initialSeconds={INITIAL_TIME} />
       </View>
 

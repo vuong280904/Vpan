@@ -1,7 +1,7 @@
 // app/(admin)/index.tsx
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react"; // ← Thêm useEffect
 import { ActivityIndicator, ScrollView, View } from "react-native";
 
 // Components
@@ -23,7 +23,7 @@ import FlashcardSetModal from "../../../components/(admin)/modals/FlashcardSetMo
 import NotificationModal from "../../../components/(admin)/modals/NotificationModal";
 import UserModal from "../../../components/(admin)/modals/UserModal";
 
-// Named import vì không có default export
+// Named import
 import { ConfirmModal } from "../../../components/(admin)/modals/ConfirmModal";
 import { MessageModal } from "../../../components/(admin)/modals/MessageModal";
 
@@ -34,19 +34,37 @@ import useAdminData from "../../../hooks/(admin)/useAdminData";
 import { styles } from "./index.styles";
 
 export default function AdminDashboard() {
-  const { token, logout } = useAuth();
+  const { user, token, logout } = useAuth();  // ← Lấy user từ AuthContext
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState("dashboard");
 
+  // === KIỂM TRA QUYỀN ADMIN – CHUYỂN HƯỚNG NẾU KHÔNG PHẢI ADMIN ===
+  useEffect(() => {
+    if (user && user.role !== 'admin') {
+      // Nếu đã đăng nhập nhưng không phải admin → đẩy về dashboard người dùng
+      router.replace('/(auth)/(tabs)'); // hoặc '/dashboard' tùy route của bạn
+    } else if (!user && !token) {
+      // Nếu chưa đăng nhập → có thể về login (tùy bạn)
+      router.replace('/login');
+    }
+  }, [user, token, router]);
+
+  // Nếu đang kiểm tra quyền hoặc chưa có user → hiển thị loading
+  if (!user) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }}>
+        <ActivityIndicator size="large" color="#8b5cf6" />
+      </View>
+    );
+  }
+
+  // Nếu đã xác nhận là admin → tiếp tục render giao diện admin
   const {
-    // Search & loading
     search,
     setSearch,
     loading,
     loadingChapters,
-
-    // Data
     stats,
     notifications,
     books,
@@ -63,7 +81,6 @@ export default function AdminDashboard() {
     payments,
     filteredPayments,
 
-    // Book modal
     bookModal,
     currentBook,
     openBookModal,
@@ -72,7 +89,6 @@ export default function AdminDashboard() {
     saveBook,
     deleteBook,
 
-    // Chapter modal
     chapterModal,
     currentChapter,
     selectedBookId,
@@ -85,7 +101,6 @@ export default function AdminDashboard() {
     saveChapter,
     deleteChapter,
 
-    // User modal
     userModal,
     currentUser,
     openUserModal,
@@ -94,7 +109,6 @@ export default function AdminDashboard() {
     saveUser,
     deleteUser,
 
-    // Flashcard modal
     flashcardModal,
     currentFlashcardSet,
     openFlashcardModal,
@@ -103,14 +117,12 @@ export default function AdminDashboard() {
     saveFlashcardSet,
     deleteFlashcardSet,
 
-    // Preview
     flashcardPreviewModal,
     selectedSetFlashcards,
     selectedSetTitle,
     openFlashcardPreview,
     closeFlashcardPreview,
 
-    // Notification modal
     notifModal,
     newNotifTitle,
     newNotifMessage,
@@ -120,15 +132,13 @@ export default function AdminDashboard() {
     updateNewNotifMessage,
     sendNotification,
 
-    // Global modals
     messageModal,
     setMessageModal,
     confirmModal,
     setConfirmModal,
 
-    // Logout
     handleLogout,
-  } = useAdminData(activeTab); // ← Sửa: chỉ truyền activeTab và token
+  } = useAdminData(activeTab);
 
   const renderTabContent = () => {
     if (loading && activeTab !== "dashboard") {
@@ -278,7 +288,6 @@ export default function AdminDashboard() {
         onSend={sendNotification}
       />
 
-      {/* Global Modals – dùng named import */}
       <ConfirmModal
         visible={confirmModal.visible}
         title={confirmModal.title}

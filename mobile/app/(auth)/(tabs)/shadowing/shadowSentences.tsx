@@ -376,7 +376,7 @@ const ShadowSentencesScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.full}>
       <TouchableOpacity 
-          onPress={() => router.back()} 
+          onPress={() => router.replace("/(auth)/(tabs)/shadowing/shadowTopic")}
           style={styles.backButton}
           activeOpacity={0.7}
         >

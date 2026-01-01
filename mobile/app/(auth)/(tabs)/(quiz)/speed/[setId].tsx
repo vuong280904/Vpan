@@ -5,11 +5,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Platform, Text, View } from 'react-native';
 import QuestionCard from '../../../../../components/Quiz/QuestionCard';
 import ResultScreen from '../../../../../components/Quiz/ResultScreen';
-import api from '../../../../utils/api';
 
-const API_URL = Platform.OS === "web" 
-    ? "http://localhost:5000/api"
-    : "http://172.20.10.3:5000/api";
+const API_URL = Platform.OS === "web"
+  ? "http://localhost:5000/api"
+  : "http://172.20.10.3:5000/api";
 
 // Xử lý SecureStore / AsyncStorage để lấy token
 let getItemAsync: (key: string) => Promise<string | null>;
@@ -36,8 +35,12 @@ const getAuthToken = async () => {
 };
 
 export default function SpeedRun() {
-  const params = useLocalSearchParams<{ setId: string; reset?: string }>();
-  const { setId, reset } = params;
+  const params = useLocalSearchParams<{
+    setId: string;
+    questionCount?: string;  // ← Thêm cái này
+    reset?: string
+  }>();
+  const { setId, questionCount: qcParam, reset } = params;
 
   const [cards, setCards] = useState<any[]>([]);
   const [current, setCurrent] = useState(0);
@@ -45,37 +48,58 @@ export default function SpeedRun() {
   const [startTime, setStartTime] = useState(Date.now());
   const [finished, setFinished] = useState(false);
 
-  const fetchCards = useCallback(async () => {
-    if (!setId) return;
+const fetchCards = useCallback(async () => {
+  if (!setId) return;
 
-    try {
-      // ƯU TIÊN DÙNG PUBLIC API TRƯỚC → an toàn, không gây lỗi 401
-      const publicRes = await fetch(`${API_URL}/flashcard-sets/public/${setId}/flashcards`);
+  try {
+    // DÙNG ROUTE CHUYÊN DỤNG CHO QUIZ – HỖ TRỢ CẢ SHARED, PUBLIC, PRIVATE
+    let res = await fetch(`${API_URL}/flashcard-sets/${setId}/quiz-flashcards`);
 
-      if (publicRes.ok) {
-        const publicData = await publicRes.json();
-        const shuffled = [...publicData].sort(() => Math.random() - 0.5);
-        setCards(shuffled);
-        return; // Thành công với public → thoát luôn
-      }
-
-      // Nếu public lỗi (404 hoặc khác) → thử private (chỉ khi có token)
-      const token = await getAuthToken();
-      if (!token) {
-        throw new Error('Bộ thẻ không công khai và bạn chưa đăng nhập');
-      }
-
-      // Dùng API private
-      const privateRes = await api.get(`/api/flashcard-sets/${setId}/flashcards`);
-      const shuffled = [...privateRes.data].sort(() => Math.random() - 0.5);
-      setCards(shuffled);
-
-    } catch (err) {
-      console.error('Lỗi tải flashcard cho Speed Run:', err);
-      Alert.alert('Lỗi', 'Không thể tải bộ thẻ để làm quiz. Bộ này có thể không công khai hoặc không tồn tại.');
-      router.back();
+    if (res.ok) {
+      const data = await res.json();
+      await processAndSetCards(data);
+      return;
     }
-  }, [setId]);
+
+    // Nếu vẫn lỗi (ví dụ mạng, server), thử fallback với token (nếu có)
+    const token = await getAuthToken();
+    if (token) {
+      res = await fetch(`${API_URL}/flashcard-sets/${setId}/quiz-flashcards`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await processAndSetCards(data);
+        return;
+      }
+    }
+
+    throw new Error('Không thể tải bộ thẻ');
+
+  } catch (err) {
+    console.error('Lỗi tải flashcard cho Speed Run:', err);
+    Alert.alert('Lỗi', 'Không thể tải bộ thẻ để làm quiz. Bộ này có thể không tồn tại hoặc link đã hết hạn.');
+    router.back();
+  }
+}, [setId]);
+
+// Tách riêng hàm xử lý để dùng chung
+const processAndSetCards = async (data: any[]) => {
+  const questionCount = qcParam ? parseInt(qcParam) : null;
+
+  let cardsToUse = data;
+
+  if (questionCount && questionCount > 0 && questionCount < data.length) {
+    // Trộn rồi cắt lấy đúng số lượng
+    const shuffled = [...data].sort(() => Math.random() - 0.5);
+    cardsToUse = shuffled.slice(0, questionCount);
+  } else {
+    // Dùng hết và trộn
+    cardsToUse = [...data].sort(() => Math.random() - 0.5);
+  }
+
+  setCards(cardsToUse);
+};
 
   // Load lần đầu
   useEffect(() => {

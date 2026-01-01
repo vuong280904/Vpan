@@ -1,4 +1,5 @@
 // VpanDashboard.tsx
+import { MaterialIcons } from '@expo/vector-icons'; // ← THÊM DÒNG NÀY
 import * as expoAv from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,7 +10,7 @@ import {
   LogOut, MessageSquare, Mic2,
   Moon,
   Plus, Search, Sun,
-  X
+  X,
 } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -49,6 +50,7 @@ interface User {
   sponsoredBy?: string | null;   // ← (tùy chọn, nếu muốn dùng luôn)
   plan?: string;              // 'free' | 'pro' | 'premium' | 'master' | 'lifetime'
   planExpiresAt?: string | null; // ISO string hoặc null
+  role?: 'user' | 'teacher' | 'admin';
 }
 
 interface FlashcardSet {
@@ -57,6 +59,7 @@ interface FlashcardSet {
   description?: string;
   cardCount?: number;
   isPublic?: boolean;
+  PublicFor?: string;
 }
 
 // ==================== HELPERS ====================
@@ -179,42 +182,115 @@ export default function VpanDashboardMerged() {
   }, [isDark]);
 
   // ==================== FETCH FLASHCARD SETS ====================
-  useEffect(() => {
-    if (!user) return;
+// SỬA LẠI useEffect này (thay toàn bộ khối useEffect fetch flashcard sets)
 
-    const token = (user as any)?.token;
+useEffect(() => {
+  if (!user) return;
 
-    const fetchMySets = async () => {
-      setLoadingMySets(true);
-      try {
-        const res = await api.get('/api/flashcard-sets', {
-          headers: { Authorization: `Bearer ${token}` },
+  const token = (user as any)?.token;
+
+  const fetchMySets = async () => {
+    setLoadingMySets(true);
+    try {
+      const res = await api.get('/api/flashcard-sets', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMyFlashcardSets(res.data || []);
+    } catch (err) {
+      console.error('Lỗi lấy bộ flashcard của tôi:', err);
+      setMyFlashcardSets([]);
+    } finally {
+      setLoadingMySets(false);
+    }
+  };
+
+  const fetchPublicSets = async () => {
+    setLoadingPublicSets(true);
+    try {
+      const res = await api.get('/api/flashcard-sets/public');
+      let sets: FlashcardSet[] = res.data || [];
+
+      // DEBUG: In ra thông tin user và dữ liệu nhận được
+      console.log('=== DEBUG PUBLIC SETS ===');
+      console.log('fullUser.plan:', fullUser?.plan);
+      console.log('Số bộ public gốc:', sets.length);
+      sets.forEach((set: any, idx) => {
+        console.log(`Set ${idx}: ${set.title} | publicFor: ${set.publicFor || 'free'}`);
+      });
+
+      // LỌC THEO PLAN
+      if (fullUser?.plan) {
+        const userPlan = fullUser.plan;
+
+        const planHierarchy: { [key: string]: number } = {
+          free: 0,
+          pro: 1,
+          premium: 2,
+          master: 3,
+          lifetime: 4,
+        };
+
+        const userLevel = planHierarchy[userPlan] ?? 0;
+
+        const filtered = sets.filter((set: any) => {
+          const setPublicFor = set.publicFor || 'free';
+          const setLevel = planHierarchy[setPublicFor] ?? 0;
+          const allowed = setLevel <= userLevel;
+          
+          // DEBUG: In ra từng bộ có bị lọc không
+          if (!allowed) {
+            console.log(`LOẠI BỎ: "${set.title}" (publicFor: ${setPublicFor}) - user chỉ có ${userPlan}`);
+          }
+          
+          return allowed;
         });
-        setMyFlashcardSets(res.data || []);
-      } catch (err) {
-        console.error('Lỗi lấy bộ flashcard của tôi:', err);
-        setMyFlashcardSets([]);
-      } finally {
-        setLoadingMySets(false);
-      }
-    };
 
-    const fetchPublicSets = async () => {
-      setLoadingPublicSets(true);
-      try {
-        const res = await api.get('/api/flashcard-sets/public');
-        setPublicFlashcardSets(res.data || []);
-      } catch (err) {
-        console.error('Lỗi lấy bộ flashcard public:', err);
-        setPublicFlashcardSets([]);
-      } finally {
-        setLoadingPublicSets(false);
+        console.log(`Sau khi lọc: còn ${filtered.length} bộ (user plan: ${userPlan})`);
+        sets = filtered;
+      } else {
+        // Nếu chưa có plan → chỉ cho xem free
+        console.log('Chưa có fullUser.plan → chỉ giữ các bộ publicFor: free');
+        sets = sets.filter((set: any) => (set.publicFor || 'free') === 'free');
       }
-    };
 
-    fetchMySets();
-    fetchPublicSets();
-  }, [user]);
+      // SẮP XẾP THEO LEVEL JLPT (giữ nguyên)
+      if (fullUser?.level) {
+        const userLevel = fullUser.level.trim().toUpperCase();
+
+        const getLevelScore = (setLevel: string): number => {
+          const normalizedSetLevel = (setLevel || '').trim().toUpperCase();
+          if (normalizedSetLevel === userLevel) return -100;
+          if (!normalizedSetLevel) return 100;
+
+          const order: { [key: string]: number } = {
+            'N1': 1, 'N2': 2, 'N3': 3, 'N4': 4, 'N5': 5,
+          };
+
+          const userOrder = order[userLevel];
+          const setOrder = order[normalizedSetLevel];
+
+          if (userOrder === undefined || setOrder === undefined) return 50;
+          return Math.abs(setOrder - userOrder);
+        };
+
+        sets = sets.sort((a: any, b: any) => {
+          return getLevelScore(a.level) - getLevelScore(b.level);
+        });
+      }
+
+      console.log('=== FINAL PUBLIC SETS:', sets.length, 'bộ ===');
+      setPublicFlashcardSets(sets);
+    } catch (err) {
+      console.error('Lỗi lấy bộ flashcard public:', err);
+      setPublicFlashcardSets([]);
+    } finally {
+      setLoadingPublicSets(false);
+    }
+  };
+
+  fetchMySets();
+  fetchPublicSets();
+}, [user, fullUser?.plan, fullUser?.level]); // THÊM fullUser?.plan vào dependency!
 
   const totalPages = Math.ceil(myFlashcardSets.length / ITEMS_PER_PAGE);
   const paginatedSets = myFlashcardSets.slice(
@@ -656,7 +732,7 @@ export default function VpanDashboardMerged() {
           </View>
         )}
 
-        {/* AVATAR MENU */}
+                {/* AVATAR MENU */}
         {avatarOpen && (
           <View pointerEvents="box-none" style={[styles.avatarMenu, isDark ? styles.menuDark : styles.menuLight]}>
             <View style={[styles.avatarMenuHeader, isDark ? styles.borderDark : styles.borderLight]}>
@@ -665,7 +741,7 @@ export default function VpanDashboardMerged() {
                 <Text style={[styles.menuName, isDark ? styles.txtLight : styles.txtDark]}>{user.name}</Text>
                 <Text style={[styles.menuRole, isDark ? styles.txtLightDim : styles.txtDarkDim]}>{user.email}</Text>
 
-                {/* 👇 HIỂN THỊ PLAN & NGÀY HẾT HẠN */}
+                {/* Hiển thị plan */}
                 {fullUser?.plan && fullUser.plan !== 'free' && (
                   <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
                     <Crown color="#f59e0b" size={16} style={{ marginRight: 6 }} />
@@ -687,7 +763,6 @@ export default function VpanDashboardMerged() {
                   </View>
                 )}
 
-                {/* Nếu là free thì hiện nhẹ nhàng */}
                 {(!fullUser?.plan || fullUser.plan === 'free') && (
                   <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
                     Tài khoản miễn phí
@@ -720,8 +795,30 @@ export default function VpanDashboardMerged() {
               <ArrowRight color="#f59e0b" width={18} height={18} />
             </TouchableOpacity>
 
+            {/* === NÚT MỚI: CHỈ HIỆN KHI LÀ ADMIN === */}
+            {fullUser?.role === 'admin' && (
+              <>
+                <View style={[styles.divider, isDark ? styles.dividerDark : styles.dividerLight]} />
+
+                <TouchableOpacity
+                  style={[styles.menuItem, isDark ? styles.menuItemDark : styles.menuItemLight]}
+                  onPress={() => {
+                    setAvatarOpen(false);
+                    router.push('/(auth)/admin'); // ← Trang admin panel
+                  }}
+                >
+                  <MaterialIcons name="admin-panel-settings" size={20} color="#8b5cf6" />
+                  <Text style={[styles.menuText, { color: '#8b5cf6', fontWeight: '700' }]}>
+                    Admin Panel
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* Đường kẻ phân cách trước Đăng xuất */}
             <View style={[styles.divider, isDark ? styles.dividerDark : styles.dividerLight]} />
 
+            {/* Nút Đăng xuất */}
             <TouchableOpacity style={[styles.menuItem, isDark ? styles.menuItemDark : styles.menuItemLight]} onPress={handleLogout}>
               <LogOut color="#ef4444" width={18} height={18} />
               <Text style={[styles.menuText, { color: '#ef4444' }]}>Đăng xuất</Text>
@@ -1072,7 +1169,6 @@ export default function VpanDashboardMerged() {
   );
 }
 
-// ==================== UTIL ====================
 const formatTimeAgo = (date: Date): string => {
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);

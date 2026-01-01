@@ -14,7 +14,7 @@ const getAllFlashcardSets = async (req, res) => {
 
 // @desc    Get a single flashcard set by ID
 // @route   GET /api/flashcard-sets/:id
-// @access  Private
+// @access  Public nếu publicFor là 'shared' hoặc plan phù hợp, Private nếu không
 const getFlashcardSetById = async (req, res) => {
   try {
     const flashcardSet = await FlashcardSet.findById(req.params.id).populate('flashcards');
@@ -23,16 +23,39 @@ const getFlashcardSetById = async (req, res) => {
       return res.status(404).json({ message: 'Flashcard set not found' });
     }
 
-    if (flashcardSet.owner.toString() !== req.user.id) {
+    // Trường hợp 1: publicFor === 'shared' → ai cũng xem được (kể cả guest)
+    if (flashcardSet.publicFor === 'shared') {
+      return res.json(flashcardSet);
+    }
+
+    // Trường hợp 2: publicFor là plan (free, pro, ...) → cần đăng nhập + kiểm tra plan
+    if (flashcardSet.publicFor && ['free', 'pro', 'premium', 'master', 'lifetime'].includes(flashcardSet.publicFor)) {
+      if (!req.user) {
+        return res.status(401).json({ message: 'Yêu cầu đăng nhập để xem bộ này' });
+      }
+
+      const planHierarchy = { free: 0, pro: 1, premium: 2, master: 3, lifetime: 4 };
+      const requiredLevel = planHierarchy[flashcardSet.publicFor];
+      const userLevel = planHierarchy[req.user.plan || 'free'];
+
+      if (userLevel < requiredLevel) {
+        return res.status(403).json({ message: 'Bạn cần gói cao hơn để xem bộ này' });
+      }
+
+      return res.json(flashcardSet);
+    }
+
+    // Trường hợp 3: private (publicFor === null hoặc không có) → phải là owner
+    if (!req.user || flashcardSet.owner.toString() !== req.user.id) {
       return res.status(401).json({ message: 'Not authorized' });
     }
 
     res.json(flashcardSet);
   } catch (err) {
+    console.error('Error getFlashcardSetById:', err);
     res.status(500).json({ error: err.message });
   }
 };
-
 // @desc    Create a new flashcard set
 // @route   POST /api/flashcard-sets
 // @access  Private
@@ -69,9 +92,10 @@ const createFlashcardSet = async (req, res) => {
 // @route   PUT /api/flashcard-sets/:id
 // @access  Private
 const updateFlashcardSet = async (req, res) => {
-  const { title, description, tags, level, isPublic } = req.body;
+  const { title, description, tags, level, publicFor } = req.body; // ← thêm publicFor vào đây
 
   try {
+    // ← THÊM DÒNG NÀY (quan trọng nhất!)
     const flashcardSet = await FlashcardSet.findById(req.params.id);
 
     if (!flashcardSet) {
@@ -82,16 +106,18 @@ const updateFlashcardSet = async (req, res) => {
       return res.status(401).json({ message: 'Not authorized' });
     }
 
+    // Cập nhật các trường (thêm publicFor)
     flashcardSet.title = title ?? flashcardSet.title;
     flashcardSet.description = description ?? flashcardSet.description;
     flashcardSet.tags = tags ?? flashcardSet.tags;
     flashcardSet.level = level ?? flashcardSet.level;
-    flashcardSet.isPublic = isPublic ?? flashcardSet.isPublic;
+    flashcardSet.publicFor = publicFor !== undefined ? publicFor : flashcardSet.publicFor;
     flashcardSet.updatedAt = Date.now();
 
     const updatedFlashcardSet = await flashcardSet.save();
     res.json(updatedFlashcardSet);
   } catch (err) {
+    console.error('Error updating flashcard set:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -186,8 +212,8 @@ const adminUpdateFlashcardSet = async (req, res) => {
       flashcardsCount: populated.flashcards?.length || 0,
     });
   } catch (err) {
-      console.error('Lỗi khi admin cập nhật flashcard set:', err);
-      res.status(500).json({ message: 'Lỗi server khi cập nhật bộ thẻ' });
+    console.error('Lỗi khi admin cập nhật flashcard set:', err);
+    res.status(500).json({ message: 'Lỗi server khi cập nhật bộ thẻ' });
   }
 };
 
@@ -235,9 +261,13 @@ const getMyFlashcardSets = async (req, res) => {
 // @access  Public
 const getPublicFlashcardSets = async (req, res) => {
   try {
-    const sets = await FlashcardSet.find({ isPublic: true })
+    // Chỉ lấy các bộ thực sự công khai (free, pro, premium, ...), KHÔNG lấy 'shared'
+    const sets = await FlashcardSet.find({
+      isPublic: true,  // THÊM DÒNG NÀY – QUAN TRỌNG NHẤT!
+      publicFor: { $in: ['free', 'pro', 'premium', 'master', 'lifetime'] }
+    })
       .populate('owner', 'name')
-      .populate('flashcards') // ← THÊM DÒNG NÀY ĐỂ POPULATE FLASHCARDS
+      .populate('flashcards')
       .sort({ createdAt: -1 });
 
     const result = sets.map(set => ({
@@ -247,9 +277,9 @@ const getPublicFlashcardSets = async (req, res) => {
       level: set.level || 'N5',
       createdAt: set.createdAt,
       owner: set.owner,
-      isPublic: set.isPublic,
-      cardCount: set.flashcards?.length || 0, // ← THÊM CARD COUNT
-      flashcards: set.flashcards || [] // ← TRẢ VỀ DANH SÁCH FLASHCARD (cho trang detail)
+      publicFor: set.publicFor,
+      cardCount: set.flashcards?.length || 0,
+      flashcards: set.flashcards || []
     }));
 
     res.json(result);
@@ -281,25 +311,39 @@ const getPublicFlashcardsForSet = async (req, res) => {
   }
 };
 
-// @desc    Get flashcards for quiz (public or private if owner)
+// @desc    Get flashcards for quiz (public, shared link, or private if owner)
 // @route   GET /api/flashcard-sets/:id/quiz-flashcards
-// @access  Public nếu isPublic = true, Private nếu false
 const getQuizFlashcards = async (req, res) => {
   try {
     const setId = req.params.id;
-
     const flashcardSet = await FlashcardSet.findById(setId).populate('flashcards');
 
     if (!flashcardSet) {
       return res.status(404).json({ message: 'Bộ flashcard không tồn tại' });
     }
 
-    // Public → ai cũng xem được
-    if (flashcardSet.isPublic) {
+    // Cho phép truy cập nếu:
+    // - publicFor === 'shared' (ai có link cũng làm quiz được)
+    // - publicFor là plan và user đủ quyền
+    // - hoặc là owner
+    if (flashcardSet.publicFor === 'shared') {
       return res.json(flashcardSet.flashcards || []);
     }
 
-    // Private → phải là owner
+    if (flashcardSet.publicFor && ['free', 'pro', 'premium', 'master', 'lifetime'].includes(flashcardSet.publicFor)) {
+      if (!req.user) return res.status(401).json({ message: 'Yêu cầu đăng nhập' });
+
+      const planHierarchy = { free: 0, pro: 1, premium: 2, master: 3, lifetime: 4 };
+      const required = planHierarchy[flashcardSet.publicFor];
+      const userLevel = planHierarchy[req.user.plan || 'free'];
+
+      if (userLevel < required) {
+        return res.status(403).json({ message: 'Bạn cần gói cao hơn' });
+      }
+      return res.json(flashcardSet.flashcards || []);
+    }
+
+    // Private → chỉ owner
     if (!req.user || flashcardSet.owner.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Bạn không có quyền truy cập bộ này' });
     }

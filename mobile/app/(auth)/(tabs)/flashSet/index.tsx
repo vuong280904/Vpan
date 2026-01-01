@@ -290,7 +290,7 @@ export default function FlashcardSetsScreen() {
       {/* Header */}
 <View style={styles.headerContainer}>
   <TouchableOpacity 
-    onPress={() => router.back()} 
+    onPress={() => router.replace("/(auth)/(tabs)")}
     style={styles.backButton}
     activeOpacity={0.7}
   >

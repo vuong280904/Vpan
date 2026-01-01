@@ -57,21 +57,21 @@ export default function AuthScreen() {
     // GOOGLE LOGIN – CHỈ DÙNG TRÊN WEB HOẶC IOS (tạm thời bỏ qua Android để tránh crash)
     const googleLogin = Platform.OS !== "android"
         ? useGoogleLogin({
-              onSuccess: async (response) => {
-                  try {
-                      setLoading(true);
-                      const res = await axios.post(`${API_URL}/google-login`, {
-                          token: response.access_token,
-                      });
-                      await login(res.data.token, res.data.user);
-                  } catch (err: any) {
-                      Alert.alert("Lỗi", err.response?.data?.message || "Đăng nhập thất bại");
-                  } finally {
-                      setLoading(false);
-                  }
-              },
-              onError: () => Alert.alert("Hủy", "Đăng nhập Google bị hủy"),
-          })
+            onSuccess: async (response) => {
+                try {
+                    setLoading(true);
+                    const res = await axios.post(`${API_URL}/google-login`, {
+                        token: response.access_token,
+                    });
+                    await login(res.data.token, res.data.user);
+                } catch (err: any) {
+                    Alert.alert("Lỗi", err.response?.data?.message || "Đăng nhập thất bại");
+                } finally {
+                    setLoading(false);
+                }
+            },
+            onError: () => Alert.alert("Hủy", "Đăng nhập Google bị hủy"),
+        })
         : null; // Không khởi tạo hook trên Android
 
     // Hàm xử lý bấm nút Google – an toàn trên mọi platform
@@ -130,6 +130,13 @@ export default function AuthScreen() {
             setLoading(false);
         }
     };
+    const redirectByRole = (role?: string) => {
+        if (role === "admin") {
+            router.replace("/(auth)/admin");
+        } else {
+            router.replace("/(auth)/(tabs)");
+        }
+    };
 
     // ANIMATION
     const toggleToSignUp = () => {
@@ -157,17 +164,30 @@ export default function AuthScreen() {
     }));
 
     const handleLogin = async () => {
-        if (!loginEmail || !loginPass) return Alert.alert("Lỗi", "Vui lòng nhập đầy đủ");
+        if (!loginEmail || !loginPass) {
+            return Alert.alert("Lỗi", "Vui lòng nhập đầy đủ");
+        }
+
         setLoading(true);
         try {
-            const res = await axios.post(`${API_URL}/login`, { email: loginEmail, password: loginPass });
-            await login(res.data.token, res.data.user);
+            const res = await axios.post(`${API_URL}/login`, {
+                email: loginEmail,
+                password: loginPass,
+            });
+
+            const { token, user } = res.data;
+
+            await login(token, user);
+
+            // ✅ redirect theo role
+            redirectByRole(user.role);
         } catch (err: any) {
             Alert.alert("Lỗi", err.response?.data?.message || "Sai email hoặc mật khẩu");
         } finally {
             setLoading(false);
         }
     };
+
 
     const handleRegister = async () => {
         if (!regName || !regEmail || !regPass) return Alert.alert("Lỗi", "Vui lòng nhập đầy đủ");

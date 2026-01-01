@@ -17,7 +17,23 @@ export const styles = StyleSheet.create({
     roleTeacher: { backgroundColor: "#e91e63", color: "#fff" },
     roleStudent: { backgroundColor: "#00bcd4", color: "#fff" },
     mainContent: { flex: 1 },
+    // Trong file styles của admin (index.styles.ts hoặc sidebar.styles.ts)
 
+    dashboardMenuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        borderTopWidth: 1,
+        borderTopColor: '#334155',
+    },
+
+    dashboardMenuText: {
+        color: '#4ade80',
+        fontSize: 15,
+        fontWeight: '600',
+        marginLeft: 12,
+    },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 24, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#eee" },
     pageTitle: { fontSize: 28, fontWeight: "bold", color: "#1a1a2e" },
     headerActions: { flexDirection: "row", alignItems: "center", gap: 16 },
@@ -71,7 +87,7 @@ export const styles = StyleSheet.create({
     cancelBtn: { paddingHorizontal: 20, paddingVertical: 10 },
     cancelText: { color: "#666", fontSize: 16 },
     saveBtn: { backgroundColor: "#4a00e0", paddingHorizontal: 28, paddingVertical: 12, borderRadius: 12 },
-    saveText: { color: "#fff", fontWeight: "600",alignSelf: "center", fontSize: 16 },
+    saveText: { color: "#fff", fontWeight: "600", alignSelf: "center", fontSize: 16 },
     chapterModalContainer: {
         width: "95%",
         height: "90%", // Chiếm 90% chiều cao màn hình, không bao giờ tràn

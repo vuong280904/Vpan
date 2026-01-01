@@ -37,7 +37,7 @@ export default function ResultScreen({
 }: Props) {
   const accuracy = Math.round((score / total) * 100);
   const isPerfect = score === total;
-  
+
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.5)).current;
@@ -66,50 +66,57 @@ export default function ResultScreen({
 
   const rank =
     accuracy >= 98 ? 'SS' :
-    accuracy >= 95 ? 'S+' :
-    accuracy >= 90 ? 'S' :
-    accuracy >= 80 ? 'A' :
-    accuracy >= 70 ? 'B' : 'C';
+      accuracy >= 95 ? 'S+' :
+        accuracy >= 90 ? 'S' :
+          accuracy >= 80 ? 'A' :
+            accuracy >= 70 ? 'B' : 'C';
 
   const rankColor: [string, string, string] =
     accuracy >= 95 ? ['#fbbf24', '#f59e0b', '#d97706'] :
-    accuracy >= 90 ? ['#a78bfa', '#8b5cf6', '#7c3aed'] :
-    accuracy >= 80 ? ['#60a5fa', '#3b82f6', '#2563eb'] :
-    accuracy >= 70 ? ['#34d399', '#10b981', '#059669'] : 
-    ['#f87171', '#ef4444', '#dc2626'];
+      accuracy >= 90 ? ['#a78bfa', '#8b5cf6', '#7c3aed'] :
+        accuracy >= 80 ? ['#60a5fa', '#3b82f6', '#2563eb'] :
+          accuracy >= 70 ? ['#34d399', '#10b981', '#059669'] :
+            ['#f87171', '#ef4444', '#dc2626'];
 
   const title =
     accuracy >= 95 ? 'Hoàn hảo!' :
-    accuracy >= 90 ? 'Xuất sắc!' :
-    accuracy >= 70 ? 'Rất tốt!' :
-    'Cố lên!';
+      accuracy >= 90 ? 'Xuất sắc!' :
+        accuracy >= 70 ? 'Rất tốt!' :
+          'Cố lên!';
 
   const subtitle =
     accuracy >= 95 ? 'Bạn là thiên tài! 🌟' :
-    accuracy >= 90 ? 'Kết quả tuyệt vời! 🎯' :
-    accuracy >= 70 ? 'Tiến bộ rõ rệt! 💪' :
-    'Cố gắng lần sau nhé! 📚';
+      accuracy >= 90 ? 'Kết quả tuyệt vời! 🎯' :
+        accuracy >= 70 ? 'Tiến bộ rõ rệt! 💪' :
+          'Cố gắng lần sau nhé! 📚';
 
   const onShare = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await Share.share({
-      message: `🔥 Tôi đạt ${score}/${total} (${accuracy}%) - Rank ${rank} trong ${
-        mode === 'timed' ? 'Timed Test' : 'Speed Run'
-      } trên Vpan! Bạn có làm được không? 🎯`,
+      message: `🔥 Tôi đạt ${score}/${total} (${accuracy}%) - Rank ${rank} trong ${mode === 'timed' ? 'Timed Test' : 'Speed Run'
+        } trên Vpan! Bạn có làm được không? 🎯`,
     });
   };
 
   const replayQuiz = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Lấy lại questionCount từ lần trước
+    // Vì total hiện tại chính là số câu đã làm lần trước
+    const previousQuestionCount = total;
+
     router.push({
       pathname: `/(auth)/(quiz)/${mode}/[setId]`,
-      params: { setId, reset: Date.now().toString() },
+      params: {
+        setId,
+        questionCount: previousQuestionCount.toString(),  // ← THÊM DÒNG NÀY – QUAN TRỌNG!
+        reset: Date.now().toString(),
+      },
     } as any);
   };
 
   const goHome = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.dismissAll();
     router.replace('/(auth)/(tabs)');
   };
 
@@ -146,16 +153,16 @@ export default function ResultScreen({
             {/* Decorative circles */}
             <View style={styles.circleDecor1} />
             <View style={styles.circleDecor2} />
-            
+
             <View style={styles.trophyContainer}>
               <View style={styles.trophyGlow} />
               <Trophy size={moderateScale(50)} color="#fff" strokeWidth={2.5} />
             </View>
-            
+
             <View style={styles.rankBadge}>
               <Text style={styles.rank}>{rank}</Text>
             </View>
-            
+
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
 
@@ -195,8 +202,8 @@ export default function ResultScreen({
             value={
               timeUsed !== undefined
                 ? `${Math.floor(timeUsed / 60)}:${(timeUsed % 60)
-                    .toString()
-                    .padStart(2, '0')}`
+                  .toString()
+                  .padStart(2, '0')}`
                 : '--'
             }
             gradient={['#064e3b', '#065f46'] as [string, string]}
@@ -229,7 +236,7 @@ export default function ResultScreen({
               />
             </View>
           </View>
-          
+
           <View style={styles.performanceStats}>
             <PerformanceItem
               label="Đúng"
@@ -254,8 +261,8 @@ export default function ResultScreen({
         {/* Action Buttons - Nằm ở cuối */}
         <View style={styles.actionContainer}>
           <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={styles.primaryBtn} 
+            <TouchableOpacity
+              style={styles.primaryBtn}
               onPress={replayQuiz}
               activeOpacity={0.8}
             >
@@ -270,8 +277,8 @@ export default function ResultScreen({
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.secondaryBtn} 
+            <TouchableOpacity
+              style={styles.secondaryBtn}
               onPress={onShare}
               activeOpacity={0.8}
             >
@@ -286,8 +293,8 @@ export default function ResultScreen({
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.tertiaryBtn} 
+            <TouchableOpacity
+              style={styles.tertiaryBtn}
               onPress={goHome}
               activeOpacity={0.8}
             >
@@ -311,14 +318,14 @@ export default function ResultScreen({
 }
 
 /* ===== SUB COMPONENTS ===== */
-function StatCard({ 
-  icon, 
-  label, 
-  value, 
-  gradient 
-}: { 
-  icon: React.ReactNode; 
-  label: string; 
+function StatCard({
+  icon,
+  label,
+  value,
+  gradient
+}: {
+  icon: React.ReactNode;
+  label: string;
   value: string;
   gradient: [string, string];
 }) {
@@ -340,13 +347,13 @@ function StatCard({
   );
 }
 
-function PerformanceItem({ 
-  label, 
-  value, 
-  color 
-}: { 
-  label: string; 
-  value: number; 
+function PerformanceItem({
+  label,
+  value,
+  color
+}: {
+  label: string;
+  value: number;
   color: string;
 }) {
   return (

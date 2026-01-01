@@ -19,8 +19,8 @@ const flashcardSetSchema = new mongoose.Schema({
   // "lifetime": chỉ công khai cho lifetime (hoặc tùy logic bạn muốn)
   publicFor: {
     type: String,
-    enum: [null, 'free', 'pro', 'premium', 'master', 'lifetime'],
-    default: null
+    enum: ['shared','free', 'pro', 'premium', 'master', 'lifetime', null], // bỏ null đi luôn
+    default: null  // ← ĐỔI THÀNH FREE
   },
 
   createdAt: { type: Date, default: Date.now },

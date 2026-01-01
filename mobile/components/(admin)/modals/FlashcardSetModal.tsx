@@ -2,12 +2,12 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import React from "react";
 import {
-    Modal,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Modal,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { styles } from "../../../app/(auth)/admin/index.styles";
 
@@ -17,7 +17,7 @@ type FlashcardSet = {
   description?: string;
   isPublic?: boolean;
   level?: string;
-  publicFor?: 'free' | 'pro' | 'premium' | 'master' | 'lifetime' | null;
+  publicFor?: 'shared' | 'free' | 'pro' | 'premium' | 'master' | 'lifetime';
 };
 
 type Props = {
@@ -32,7 +32,7 @@ export default function FlashcardSetModal({ visible, currentSet, onClose, onSave
   if (!currentSet) return null;
 
   const packages = [
-    { value: null, label: "Chỉ owner (riêng tư)" },
+    { value: 'shared', label: "Chỉ owner (riêng tư)" },
     { value: "free", label: "Free" },
     { value: "pro", label: "Pro" },
     { value: "premium", label: "Premium" },
