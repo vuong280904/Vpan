@@ -21,7 +21,7 @@ interface Topic {
 }
 
 const BASE_URL = Platform.OS === "web" 
-    ? "http://localhost:5000"
+    ? "https://vpan-api.onrender.com"
     : "http://172.20.10.3:5000";
 const MASCOT = require('../../../../assets/images/linhvat.png');
 
