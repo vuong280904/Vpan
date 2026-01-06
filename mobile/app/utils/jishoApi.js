@@ -8,7 +8,7 @@ const MOBILE_HOST = '172.20.10.3'; // ← Thay đổi IP này khi bạn chuyển
 
 // Dùng Platform.select để tránh lỗi server-side rendering trên web
 const BASE_URL = Platform.select({
-  web: `http://localhost:${PORT}`,
+  web: `https://vpan-api.onrender.com`,
   default: `http://${MOBILE_HOST}:${PORT}`,
 });
 
