@@ -8,7 +8,7 @@ import ResultScreen from '../../../../../components/Quiz/ResultScreen';
 import Timer from '../../../../../components/Quiz/Timer';
 
 const API_URL = Platform.OS === "web"
-  ? "http://localhost:5000/api"
+  ? "https://vpan-api.onrender.com/api"
   : "http://172.20.10.3:5000/api";
 
 const INITIAL_TIME = 600; // 10 phút = 600 giây
