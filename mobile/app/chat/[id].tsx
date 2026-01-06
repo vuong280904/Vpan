@@ -27,7 +27,7 @@ import { Socket, io } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 
 const SOCKET_URL = Platform.OS === "web" 
-    ? "http://localhost:5000"
+    ? "https://vpan-api.onrender.com"
     : "http://172.20.10.3:5000";
 
 interface AuthUser {
