@@ -16,7 +16,7 @@ import {
 
 const API_URL = 
   Platform.OS === "web" 
-    ? "http://localhost:5000/api/auth"
+    ? "https://vpan-api.onrender.com/api/auth"
     : "http://172.20.10.3/api/auth";
 
 export default function RegisterScreen() {
