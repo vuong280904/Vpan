@@ -9,7 +9,7 @@ const getBaseUrl = () => {
     return 'http://10.249.2.233:';
   } else {
     // Web hoặc thiết bị thật - đổi IP này thành IP máy tính của bạn
-    return 'http://localhost:';
+    return 'https://vpan-api.onrender.com';
   }
 };
 
