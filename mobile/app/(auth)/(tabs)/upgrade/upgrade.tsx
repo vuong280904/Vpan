@@ -22,7 +22,7 @@ const CARD_WIDTH = width * 0.23;
 const IS_TEST = true;
 
 const API_URL = Platform.OS === "web" 
-    ? "http://localhost:5000/api/auth"
+    ? "https://vpan-api.onrender.com/api/auth"
     : "http://172.20.10.3:5000/api/auth";
 
 const MERCHANT_WALLET = new PublicKey('9rZttxsDzghUFkuZ7FxYYnSFzi2TcYU46yr5pStfJr2m');
