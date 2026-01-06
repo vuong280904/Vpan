@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
-const SOCKET_URL = "http://localhost:5000"; // đúng IP máy bạn
+const SOCKET_URL = "https://vpan-api.onrender.com"; // đúng IP máy bạn
 
 interface SocketContextType {
   socket: Socket | null;
