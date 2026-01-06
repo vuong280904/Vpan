@@ -83,7 +83,7 @@ const getSafeAvatar = (user: { avatarURL?: string; email: string }) => {
 
 const { width } = Dimensions.get('window');
 const SOCKET_URL = Platform.OS === "web"
-  ? "http://localhost:5000"
+  ? "https://vpan-api.onrender.com"
   : "http://172.20.10.3:5000";
 const ITEMS_PER_PAGE = 4;
 
