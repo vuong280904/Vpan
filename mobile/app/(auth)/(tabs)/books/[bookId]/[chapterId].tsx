@@ -34,7 +34,7 @@ import { getPronunciationUrl } from '../../../../utils/jishoApi'; // gi·ªØ nguy√
 
 const PAGE_TURN_SOUND = require('../../../../../assets/sounds/page-turn.mp3');
 const API_BASE = Platform.OS === "web" 
-    ? "http://localhost:5000"
+    ? "https://vpan-api.onrender.com"
     : "http://172.20.10.3:5000";
 
 export default function EhonReader() {
