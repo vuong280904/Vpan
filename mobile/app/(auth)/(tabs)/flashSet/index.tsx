@@ -24,7 +24,7 @@ const getItemAsync = AsyncStorage.getItem;
 
 const API_URL = 
   Platform.OS === "web" 
-    ? "http://localhost:5000/api"
+    ? "https://vpan-api.onrender.com/api"
     : "http://172.20.10.3:5000/api";
 
 const getAuthToken = async () => {
