@@ -35,7 +35,7 @@ const BG_IMAGE =
     "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExbjZqZnZkN3hoM21lODBjaWtmYnVnaWJ4dW15bHlldXRoaDd5eXM1YiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o6ZtkZeusjPpWaAoM/giphy.gif";
 
 const API_URL = Platform.select({
-    web: "http://localhost:5000/api/auth",
+    web: "https://vpan-api.onrender.com/api/auth",
     ios: "http://172.20.10.3:5000/api/auth",
     android: "http://172.20.10.3:5000/api/auth",
 });
