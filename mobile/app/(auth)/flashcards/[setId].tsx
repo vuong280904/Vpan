@@ -26,7 +26,7 @@ import { getPronunciationUrl, searchJapaneseWord } from '../../utils/jishoApi'; 
 import { styles } from './flashcards.styles';
 
 const API_URL = Platform.OS === "web"
-  ? "http://localhost:5000/api"
+  ? "https://vpan-api.onrender.com/api"
   : "http://172.20.10.3:5000/api";
 
 // Dùng AsyncStorage thống nhất cho mọi nền tảng (vì login đang lưu bằng AsyncStorage)
