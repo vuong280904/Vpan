@@ -654,7 +654,7 @@ export default function VpanDashboardMerged() {
             {QUICK_ACTIONS.map((action, i) => (
               <TouchableOpacity key={i} style={[styles.actionBtn, { backgroundColor: action.bg }]} onPress={() => {
                 if (action.title === 'Flashcard') router.push('/FlashSet' as any);
-                else if (action.title === 'Luyện Thi') router.push('/(quiz)' as any);
+                else if (action.title === 'Luyện Thi') router.push('/translate' as any);
                 else if (action.title === 'Shadowing') router.push('/shadowTopic' as any);
                 else if (action.title === 'Sách Song Ngữ') router.push('/books/list' as any);
               }}>

@@ -11,6 +11,7 @@ const FormData = require('form-data');
 const http = require('http');
 //
 const paymentRoutes = require('./routes/paymentRoutes');
+
 //
 const app = express();
 dotenv.config();
@@ -203,6 +204,31 @@ pythonProcess.stdout.on('data', (data) => console.log('>>> PYTHON:', data.toStri
 pythonProcess.stderr.on('data', (data) => console.error('>>> PYTHON ERR:', data.toString().trim()));
 pythonProcess.on('close', (code) => console.log(`>>> PYTHON EXIT CODE: ${code}`));
 
+
+
+// ======================
+// Spawn Grammar AI Python server (T5 Grammar)
+// ======================
+const GRAMMAR_AI_PORT = 8001;
+
+const grammarAIProcess = spawn(
+  "python",
+  [path.join(__dirname, "modelAI", "grammarAI_server.py")]
+);
+
+grammarAIProcess.stdout.on('data', (data) => {
+  console.log('>>> GRAMMAR AI:', data.toString().trim());
+});
+
+grammarAIProcess.stderr.on('data', (data) => {
+  console.error('>>> GRAMMAR AI ERR:', data.toString().trim());
+});
+
+grammarAIProcess.on('close', (code) => {
+  console.log(`>>> GRAMMAR AI EXIT CODE: ${code}`);
+});
+
+
 // ======================
 // Helper: chờ Python server
 // ======================
@@ -218,6 +244,24 @@ async function waitPythonServerReady(timeout = 20000) {
   }
   console.warn('Python server chưa sẵn sàng – vẫn tiếp tục chạy');
 }
+
+
+// ======================
+// Helper: wait Grammar AI ready
+// ======================
+async function waitGrammarAIReady(timeout = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      await axios.get(`http://127.0.0.1:${GRAMMAR_AI_PORT}/health`);
+      return true;
+    } catch {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  console.warn('⚠️ Grammar AI chưa sẵn sàng');
+}
+
 
 // ======================
 // Shadow AI route
@@ -268,6 +312,53 @@ app.post('/api/shadow/predict', upload.single('audio'), async (req, res) => {
 });
 
 // ======================
+// Grammar AI API
+// ======================
+app.post('/api/grammar/check', async (req, res) => {
+  const { sentence, sourceLang } = req.body;
+
+  if (!sentence || !String(sentence).trim()) {
+    return res.status(400).json({ error: 'Thiếu sentence' });
+  }
+
+  try {
+    await waitGrammarAIReady();
+
+    const response = await axios.post(
+      `http://127.0.0.1:${GRAMMAR_AI_PORT}/correct`,
+      {
+        sentence,
+        sourceLang: sourceLang || 'ja'
+      },
+      { timeout: 60000 }
+    );
+
+    /**
+     * response.data = {
+     *   input: "学校行きました",
+     *   corrected: "学校に行きました",
+     *   isDifferent: true,
+     *   diff: {
+     *     user: [...],
+     *     ai: [...]
+     *   },
+     *   vi: "Tôi đã đến trường"
+     * }
+     */
+
+    res.json(response.data);
+
+  } catch (err) {
+    console.error('Grammar AI error:', err.message);
+    res.status(500).json({
+      error: 'Grammar AI server error',
+      detail: err.message
+    });
+  }
+});
+
+
+// ======================
 // Import routers
 // ======================
 const shadowRouter       = require('./routes/shadowRouter');
@@ -279,6 +370,7 @@ const flashcardSetRoutes = require('./routes/flashcardSets');
 const flashcardRoutes    = require('./routes/flashcards');
 const userRoutes         = require('./routes/userRoutes');
 const chatRoutes         = require('./routes/chat');
+const grammarAIRoutes = require('./routes/grammarAIRoutes');
 const adminRoutes = require('./routes/admin');
 
 app.use('/api/payment', paymentRoutes);
@@ -292,6 +384,7 @@ app.use('/api/flashcard-sets', flashcardSetRoutes);
 app.use('/api/flashcards', flashcardRoutes);
 app.use('/api/shadow', shadowRouter);
 app.use('/api/users', userRoutes);
+app.use('/api/grammar', grammarAIRoutes);
 //
 
 //
