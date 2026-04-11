@@ -11,6 +11,9 @@ const FormData = require('form-data');
 const http = require('http');
 //
 const paymentRoutes = require('./routes/paymentRoutes');
+const shiritoriRoutes = require("./routes/shiritoriRoutes");
+
+
 
 //
 const app = express();
@@ -205,7 +208,28 @@ pythonProcess.stderr.on('data', (data) => console.error('>>> PYTHON ERR:', data.
 pythonProcess.on('close', (code) => console.log(`>>> PYTHON EXIT CODE: ${code}`));
 
 
+// ======================
+// Spawn Shiritori AI server
+// ======================
 
+const SHIRITORI_PORT = 8002;
+
+const shiritoriProcess = spawn(
+  "python",
+  [path.join(__dirname, "modelAI", "shiritori_server.py")]
+);
+
+shiritoriProcess.stdout.on("data", (data) => {
+  console.log(">>> SHIRITORI AI:", data.toString().trim());
+});
+
+shiritoriProcess.stderr.on("data", (data) => {
+  console.error(">>> SHIRITORI AI ERR:", data.toString().trim());
+});
+
+shiritoriProcess.on("close", (code) => {
+  console.log(`>>> SHIRITORI AI EXIT CODE: ${code}`);
+});
 // ======================
 // Spawn Grammar AI Python server (T5 Grammar)
 // ======================
@@ -385,6 +409,7 @@ app.use('/api/flashcards', flashcardRoutes);
 app.use('/api/shadow', shadowRouter);
 app.use('/api/users', userRoutes);
 app.use('/api/grammar', grammarAIRoutes);
+app.use("/api/shiritori", shiritoriRoutes);
 //
 
 //
